@@ -3,4 +3,6 @@ pub mod element;
 pub mod node;
 pub mod layoutengine;
 pub mod text;
-// pub mod cache;
+pub mod debugtools;
+pub mod fontmanager;
+//pub mod style;

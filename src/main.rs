@@ -1,17 +1,21 @@
 mod dom;
 mod renderer;
 mod view;
+use debugtools::DebugTools;
 use dom::dom::Dom;
 use dom::element::Element;
 
+
 use skia_safe::{AlphaType, Canvas, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Point, Rect, Surface, Typeface, surfaces};
 use std::num::NonZeroU32;
-use winit::event::{Event, KeyEvent, WindowEvent};
+use std::rc::Rc;
+use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+use winit::window::Window;
 
-use crate::dom::element;
 use crate::dom::layoutengine::LayoutEngine;
+use crate::dom::{debugtools, element};
 use crate::renderer::skiarenderer::SkiaRenderer;
 
 #[path = "utils/winit_app.rs"]
@@ -23,6 +27,14 @@ fn main() {
 }
 //test
 pub(crate) fn entry(event_loop: EventLoop<()>) {
+    let mut debug_tools = DebugTools::new();
+    debug_tools.log("test");
+    let mut dom = Dom::new();
+    let root = Element::new(element::Color::new(1.0, 1.0, 0.0, 1.0));
+    let root_node_id = dom.create_element(root);
+    dom.set_root(root_node_id);
+    view::create_view(&mut dom, root_node_id);
+
     let app = winit_app::WinitAppBuilder::with_init(
         |elwt| {
             let window = winit_app::make_window(elwt, |w| w);
@@ -33,7 +45,7 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
         },
         |_elwt, (window, context)| softbuffer::Surface::new(context, window.clone()).unwrap(),
     )
-    .with_event_handler(|(window, _context), surface, event, elwt| {
+    .with_event_handler(move |(window, _context), surface, event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
 
         match event {
@@ -47,46 +59,39 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
                     surface.resize(width, height).unwrap();
                 }
             }
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::KeyboardInput { device_id, event, is_synthetic },
+            } => {
+                //debug_tools.log(event.physical_key::);
+                if let (PhysicalKey::Code(KeyCode::F12), ElementState::Pressed) = (event.physical_key, event.state) {
+                    println!("F12 pressed!");
+                    debug_tools.log("F12");
+                    window.request_redraw();
+                    // Your logic here
+                }
+            }
+
             Event::WindowEvent { window_id, event: WindowEvent::RedrawRequested } if window_id == window.id() => {
                 let Some(surface) = surface else {
                     eprintln!("RedrawRequested fired before Resumed or after Suspended");
                     return;
                 };
+                //buffer_from_surface(window, surface);
                 let size = window.inner_size();
                 if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
                     // buffer.present().unwrap();
                     let mut buffer = surface.buffer_mut().unwrap();
 
                     // Calculate buffer dimensions
-                    let width = width.get() as usize;
-                    let height = height.get() as usize;
-                    let stride = width * 4; // 4 bytes per pixel (BGRA8888)
-
-                    // Create Skia surface directly from the buffer
-                    let info = ImageInfo::new((width as i32, height as i32), ColorType::BGRA8888, AlphaType::Unpremul, None);
-
-                    // Safe because we know the buffer dimensions and format match our requirements
-                    let bytes = unsafe {
-                        std::slice::from_raw_parts_mut(
-                            buffer.as_mut_ptr() as *mut u8,
-                            height * stride, // Total bytes = height * row stride
-                        )
-                    };
-
-                    if let Some(mut skia_surface) = surfaces::wrap_pixels(&info, bytes, stride, None) {
-                        let canvas = skia_surface.canvas();
-                        canvas.clear(Color::BLACK);
-
-                        let mut dom = Dom::new();
-                        let root = Element::new(element::Color::new(1.0, 1.0, 0.0, 1.0));
-                        let root_node_id = dom.create_element(root);
-                        dom.set_root(root_node_id);
-
-                        view::create_view(&mut dom, root_node_id);
-
-                        LayoutEngine::compute_layout(&mut dom, width as f32, height as f32);
-                        SkiaRenderer::draw_dom(&canvas, &dom);
-                    }
+                    debug_tools.log("render");
+                    SkiaRenderer::render(
+                        &mut dom,
+                        buffer.as_mut(),
+                        width.get() as usize,
+                        height.get() as usize,
+                        Some(&mut debug_tools), // or None if debug tools disabled
+                    );
 
                     buffer.present().unwrap();
                 }
@@ -107,3 +112,5 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
 
     winit_app::run_app(event_loop, app);
 }
+
+

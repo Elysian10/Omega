@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-
 use indextree::NodeId;
 use skia_safe::{Font, FontMgr, FontStyle};
+use std::collections::HashMap;
 
-use crate::dom::{dom::Dom, node::NodeContent};
 
-// We'll use a Rect for all layout calculations to better represent the box model.
+use crate::dom::{dom::Dom, fontmanager::get_thread_local_font_mgr, node::NodeContent}; // SoA-compatible imports
+
+// Rect and LayoutData structs remain the same
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rect {
     pub x: f32,
@@ -14,7 +14,6 @@ pub struct Rect {
     pub height: f32,
 }
 
-// Your original LayoutData, which we'll use at the very end.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutData {
     pub computed_x: f32,
@@ -26,171 +25,160 @@ pub struct LayoutData {
 pub struct LayoutEngine;
 
 impl LayoutEngine {
-    /// The main entry point for the layout process.
+    /// Main entry point, simplified to kick off the recursive DFS.
     pub fn compute_layout(dom: &mut Dom, viewport_width: f32, viewport_height: f32) {
         if let Some(root_id) = dom.root {
-            // This map will store the computed layout box for each node.
-            let mut layout_map: HashMap<NodeId, Rect> = HashMap::new();
-
-            // --- PASS 1: Calculate Size (Measure) ---
-            // Traverses the tree from the bottom-up to determine the intrinsic size of each node.
-            // It calculates 'width' and 'height' but leaves 'x' and 'y' as 0 for now.
-            Self::calculate_size(dom, root_id, viewport_width, &mut layout_map);
-
-            // --- PASS 2: Arrange Position (Layout) ---
-            // Traverses the tree from the top-down, using the pre-calculated sizes
-            // to determine the final (x, y) coordinates for each node.
-            let viewport_rect = Rect {
+            // The available space for the root is the whole viewport.
+            let available_space = Rect {
                 x: 0.0,
                 y: 0.0,
                 width: viewport_width,
                 height: viewport_height,
             };
-            Self::arrange_nodes(dom, root_id, viewport_rect, &mut layout_map);
-
-            // --- PASS 3: Apply Results ---
-            // Commits the final computed layout data to the nodes in the DOM tree.
-            Self::apply_layouts(dom, layout_map);
+            // Start the single-pass DFS from the root.
+            Self::layout_node(dom, root_id, available_space);
         }
     }
 
-    /// PASS 1: Recursively calculates the size of a node based on its children or content.
-    /// Returns the computed size (width, height) of the current node.
-    fn calculate_size(
-    dom: &Dom,
-    node_id: NodeId,
-    available_width: f32,
-    layout_map: &mut HashMap<NodeId, Rect>,
-) -> Rect {
-    let node = dom.arena.get(node_id).unwrap().get();
-    // In a real engine, this would come from the node's CSS styles.
-    let padding = (2.0, 2.0); // (horizontal, vertical) padding on each side
+    /// The heart of the single-pass DFS layout algorithm.
+    /// This function computes its own size and layout, arranges its children,
+    /// and returns its own computed bounding box.
+    fn layout_node(dom: &mut Dom, node_id: NodeId, available_space: Rect) -> Rect {
+        // In a real engine, this would come from CSS styles associated with the node.
+        let padding = (2.0, 2.0); // (horizontal, vertical) padding on each side
 
-    // The space available for our content or for our children.
-    let content_width = available_width - padding.0 * 2.0;
-    let mut content_height = 0.0;
-
-    match &node.content {
-        // --- HANDLE ELEMENT NODES ---
-        NodeContent::Element(_element) => {
-            let child_ids: Vec<NodeId> = node_id.children(&dom.arena).collect();
-            if !child_ids.is_empty() {
-                // If the element has children, its height is determined by them.
-                for child_id in child_ids {
-                    let child_rect = Self::calculate_size(dom, child_id, content_width, layout_map);
-                    content_height += child_rect.height;
-                }
-            } else {
-                // This is an empty element (like <div></div>). Give it a default height.
-                content_height = 30.0;
-            }
-        }
-        // --- HANDLE TEXT NODES (THE NEW LOGIC) ---
-        NodeContent::Text(text) => {
-            // A text node is a leaf. Its size is determined by its content.
-            // We call your measure_text function to get its dimensions.
-            let (_measured_width, measured_height) = Self::measure_text(
-                &text.content,
-                text.font_family.as_deref(),
-                text.font_size,
-                content_width, // The text can wrap within the available content width.
-            );
-            content_height = measured_height;
-        }
-    }
-
-    // The node's final size includes its own padding.
-    let final_rect = Rect {
-        x: 0.0, // Position is calculated in the arrange pass.
-        y: 0.0,
-        width: available_width, // Block elements take full available width.
-        height: content_height + padding.1 * 2.0,
-    };
-
-    layout_map.insert(node_id, final_rect);
-    final_rect
-}
-
-    /// PASS 2: Recursively sets the final (x, y) position of a node and its children.
-    fn arrange_nodes(dom: &Dom, node_id: NodeId, parent_content_box: Rect, layout_map: &mut HashMap<NodeId, Rect>) {
-        // Update this node's position based on the parent's content area.
-        if let Some(node_layout) = layout_map.get_mut(&node_id) {
-            node_layout.x = parent_content_box.x;
-            node_layout.y = parent_content_box.y;
-        }
-
-        // Determine this node's content box to position its children within it.
-        let padding = (2.0, 2.0);
-        let node_layout = layout_map[&node_id];
-        let mut current_child_box = Rect {
-            x: node_layout.x + padding.0,
-            y: node_layout.y + padding.1,
-            width: node_layout.width - padding.0 * 2.0,
-            height: 0.0, // Height is irrelevant here, we only need the starting y.
+        // The content box is the space inside our padding.
+        let mut content_box = Rect {
+            x: available_space.x + padding.0,
+            y: available_space.y + padding.1,
+            width: available_space.width - padding.0 * 2.0,
+            height: 0.0, // We will calculate this based on content/children.
         };
 
-        // Arrange each child, stacking them vertically within our content box.
-        for child_id in node_id.children(&dom.arena) {
-            Self::arrange_nodes(dom, child_id, current_child_box, layout_map);
-            // Move the "cursor" down by the height of the child we just placed.
-            current_child_box.y += layout_map[&child_id].height;
-        }
-    }
+        let node_content = dom.content.get(&node_id).cloned();
 
-    /// PASS 3: Applies the final calculated layouts back to the DOM nodes.
-    fn apply_layouts(dom: &mut Dom, layout_map: HashMap<NodeId, Rect>) {
-        for (node_id, rect) in layout_map {
-            if let Some(node) = dom.arena.get_mut(node_id) {
-                node.get_mut().layout_data = Some(LayoutData {
-                    computed_x: rect.x,
-                    computed_y: rect.y,
-                    actual_width: rect.width,
-                    actual_height: rect.height,
-                });
+        match node_content {
+            Some(NodeContent::Element(_)) => {
+                // This "cursor" tracks where the next child should be placed.
+                let mut child_cursor_y = content_box.y;
+
+                // --- RECURSIVE STEP (Pre-order work) ---
+                // We iterate over children and lay them out one by one.
+                let child_ids: Vec<NodeId> = node_id.children(&dom.arena).collect();
+                for child_id in child_ids {
+                    let child_available_space = Rect {
+                        x: content_box.x,
+                        y: child_cursor_y,
+                        width: content_box.width,
+                        // Height is unconstrained for now in this simple block layout
+                        height: f32::INFINITY,
+                    };
+
+                    // The magic happens here: recursively call layout on the child.
+                    let child_rect = Self::layout_node(dom, child_id, child_available_space);
+
+                    // After the child call returns, we know its size.
+                    // Now we can update our cursor for the next sibling.
+                    child_cursor_y += child_rect.height;
+                }
+
+                // --- POST-ORDER WORK ---
+                // All children have been laid out. Our content height is the total height they occupy.
+                content_box.height = child_cursor_y - content_box.y;
+            }
+            Some(NodeContent::Text(text)) => {
+                // Leaf node: measure the text to determine content size.
+                let (_measured_width, measured_height) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
+                content_box.height = measured_height;
+            }
+            None => {
+                // Empty element, give it a default height
+                content_box.height = 30.0;
             }
         }
+
+        // --- FINALIZATION ---
+        // The node's final size includes its own padding.
+        let final_rect = Rect {
+            x: available_space.x,
+            y: available_space.y,
+            width: available_space.width, // Block elements take full available width.
+            height: content_box.height + padding.1 * 2.0,
+        };
+
+        // Directly apply the result to the DOM's SoA layout data. No third pass needed!
+        dom.layout.insert(
+            node_id,
+            LayoutData {
+                computed_x: final_rect.x,
+                computed_y: final_rect.y,
+                actual_width: final_rect.width,
+                actual_height: final_rect.height,
+            },
+        );
+
+        // Return our computed rect so our parent can position us.
+        final_rect
     }
 
-    // Your measure_text function remains unchanged. It will be called from calculate_size.
+    // The measure_text function remains exactly the same.
+    fn calculate_line_height(font: &Font, font_size: f32) -> f32 {
+        font_size * 9.0 / 8.0
+    }
+
+    // In measure_text function:
     fn measure_text(content: &str, font_family: Option<&str>, font_size: f32, max_width: f32) -> (f32, f32) {
-        // ... implementation is the same ...
-        let font_mgr = FontMgr::new();
+        let font_mgr = get_thread_local_font_mgr();
         let typeface = font_mgr
             .match_family_style(font_family.unwrap_or("Arial"), FontStyle::normal())
             .unwrap_or_else(|| font_mgr.legacy_make_typeface(None, FontStyle::normal()).unwrap());
 
         let font = Font::new(typeface, font_size);
-        let (text_width, text_bounds) = font.measure_str(content, None);
-        if text_width <= max_width {
-            (text_width, text_bounds.height())
-        } else {
-            let words: Vec<&str> = content.split_whitespace().collect();
-            let space_width = font.measure_str(" ", None).0;
-            let mut lines = Vec::new();
-            let mut current_line = String::new();
-            let mut current_line_width = 0.0;
-            for word in words {
-                let word_width = font.measure_str(word, None).0;
-                if current_line.is_empty() {
-                    current_line = word.to_string();
-                    current_line_width = word_width;
-                } else if current_line_width + space_width + word_width <= max_width {
-                    current_line.push(' ');
-                    current_line.push_str(word);
-                    current_line_width += space_width + word_width;
-                } else {
-                    lines.push(current_line);
-                    current_line = word.to_string();
-                    current_line_width = word_width;
+        let line_height = Self::calculate_line_height(&font, font_size);
+
+        // Handle multi-line text by splitting on newlines first
+        let lines: Vec<&str> = content.split('\n').collect();
+        let mut wrapped_lines = Vec::new();
+
+        for line in lines {
+            let (text_width, _) = font.measure_str(line, None);
+
+            if text_width <= max_width {
+                wrapped_lines.push(line.to_string());
+            } else {
+                // Word wrapping for lines that are too long
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let space_width = font.measure_str(" ", None).0;
+                let mut current_line = String::new();
+                let mut current_line_width = 0.0;
+
+                for word in words {
+                    let word_width = font.measure_str(word, None).0;
+                    if current_line.is_empty() {
+                        current_line = word.to_string();
+                        current_line_width = word_width;
+                    } else if current_line_width + space_width + word_width <= max_width {
+                        current_line.push(' ');
+                        current_line.push_str(word);
+                        current_line_width += space_width + word_width;
+                    } else {
+                        wrapped_lines.push(current_line);
+                        current_line = word.to_string();
+                        current_line_width = word_width;
+                    }
+                }
+
+                if !current_line.is_empty() {
+                    wrapped_lines.push(current_line);
                 }
             }
-            if !current_line.is_empty() {
-                lines.push(current_line);
-            }
-            let max_line_width = lines.iter().map(|line| font.measure_str(line, None).0).fold(0.0, f32::max).min(max_width);
-            let line_height = font.measure_str("A", None).1.height() * 1.2;
-            let total_height = lines.len() as f32 * line_height;
-            (max_line_width, total_height)
         }
+
+        // Calculate max width and total height
+        let max_line_width = wrapped_lines.iter().map(|line| font.measure_str(line, None).0).fold(0.0, f32::max).min(max_width);
+
+        let total_height = wrapped_lines.len() as f32 * line_height;
+
+        (max_line_width, total_height)
     }
 }
