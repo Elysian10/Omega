@@ -1,18 +1,16 @@
-use crate::element::Color;
+use crate::dom::styleengine::Color;
 
 #[derive(Debug, Clone)]
 pub struct Text {
     pub content: String,
-    pub color: Color,
     pub font_size: f32,
     pub font_family: Option<String>,
 }
 
 impl Text {
-    pub fn new(content: impl Into<String>, color: Color) -> Self {
+    pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
-            color,
             font_size: 16.0, // Default font size
             font_family: None,
         }

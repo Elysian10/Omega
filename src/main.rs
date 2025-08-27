@@ -15,7 +15,7 @@ use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::Window;
 
 use crate::dom::layoutengine::LayoutEngine;
-use crate::dom::{debugtools, element};
+use crate::dom::{debugtools, element, styleengine};
 use crate::renderer::skiarenderer::SkiaRenderer;
 
 #[path = "utils/winit_app.rs"]
@@ -30,7 +30,7 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
     let mut debug_tools = DebugTools::new();
     debug_tools.log("test");
     let mut dom = Dom::new();
-    let root = Element::new(element::Color::new(1.0, 1.0, 0.0, 1.0));
+    let root = Element::new();
     let root_node_id = dom.create_element(root);
     dom.set_root(root_node_id);
     view::create_view(&mut dom, root_node_id);
@@ -66,6 +66,7 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
                 //debug_tools.log(event.physical_key::);
                 if let (PhysicalKey::Code(KeyCode::F12), ElementState::Pressed) = (event.physical_key, event.state) {
                     println!("F12 pressed!");
+                    debug_tools = !debug_tools;
                     debug_tools.log("F12");
                     window.request_redraw();
                     // Your logic here

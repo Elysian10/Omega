@@ -2,7 +2,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::{
     dom::{
-        debugtools::DebugTools, dom::Dom, fontmanager::get_thread_local_font_mgr, layoutengine::{LayoutData, LayoutEngine}, node::NodeContent, text::Text
+        debugtools::DebugTools, dom::Dom, fontmanager::get_thread_local_font_mgr, layoutengine::{LayoutData, LayoutEngine, TextInfo}, node::NodeContent, styleengine::{ComputedStyle, StyleEngine}, text::Text
     },
     element::Element,
 };
@@ -50,6 +50,7 @@ impl SkiaRenderer {
             let dom_width = if show_debug_tools { width / 2 } else { width };
             
             // Compute layout and render DOM
+            StyleEngine::compute_styles(dom);
             let now = Instant::now();
             LayoutEngine::compute_layout(dom, dom_width as f32, height as f32);
             let duration = now.elapsed();
@@ -68,14 +69,17 @@ impl SkiaRenderer {
         // Get content and layout data from the SoA storage
         let content = dom.content.get(&node_id);
         let layout_data = dom.layout.get(&node_id);
+        let computed_style = dom.computed_styles.get(&node_id).unwrap();
 
         if let (Some(content), Some(layout_data)) = (content, layout_data) {
             match content {
                 NodeContent::Element(element) => {
-                    Self::draw_element(canvas, element, *layout_data);
+                    Self::draw_element(canvas, computed_style, *layout_data);
                 }
                 NodeContent::Text(text) => {
-                    Self::draw_text(canvas, text, *layout_data);
+
+                    let text_layout = dom.text_info.get(&node_id).unwrap();
+                    Self::draw_text(canvas, text, computed_style, *layout_data, text_layout);
                 }
             }
         }
@@ -89,10 +93,11 @@ impl SkiaRenderer {
     }
 
     // draw_element and draw_text remain the same as before
-    fn draw_element(canvas: &Canvas, element: &Element, layout_data: LayoutData) {
+    fn draw_element(canvas: &Canvas, style: &ComputedStyle, layout_data: LayoutData) {
         let rect = Rect::from_xywh(layout_data.computed_x, layout_data.computed_y, layout_data.actual_width, layout_data.actual_height);
 
-        let color = Color4f::new(element.color.r, element.color.g, element.color.b, element.color.a);
+        let color = Color4f::new(style.background_color.r, style.background_color.g, style.background_color.b, style.background_color.a);
+        // let color = Color4f::new(1.0, style.background_color.g, style.background_color.b, style.background_color.a);
 
         let mut paint = Paint::new(color, None);
         paint.set_style(PaintStyle::Fill);
@@ -104,76 +109,46 @@ impl SkiaRenderer {
         font_size * 9.0 / 8.0
     }
 
-    fn draw_text(canvas: &Canvas, text: &Text, layout_data: LayoutData) {
+    fn draw_text(canvas: &Canvas, text: &Text, style: &ComputedStyle, layout_data: LayoutData, text_info: &TextInfo) {
         // Draw the debug green rectangle
         let rect = Rect::from_xywh(layout_data.computed_x, layout_data.computed_y, layout_data.actual_width, layout_data.actual_height);
-
         let debug_color = Color4f::new(0.0, 0.0, 0.0, 0.8);
         let mut debug_paint = Paint::new(debug_color, None);
         debug_paint.set_style(PaintStyle::Fill);
         canvas.draw_rect(rect, &debug_paint);
-
+        
         // Set up text paint
-        let mut paint = Paint::new(Color4f::new(text.color.r, text.color.g, text.color.b, text.color.a), None);
+        let mut paint = Paint::new(
+            Color4f::new(style.background_color.r, style.background_color.g, style.background_color.b, style.background_color.a), 
+            None
+        );
         paint.set_style(PaintStyle::Fill);
-
+        
         let font_mgr = get_thread_local_font_mgr();
         let typeface = font_mgr
             .match_family_style(text.font_family.as_deref().unwrap_or("Arial"), FontStyle::normal())
             .unwrap_or_else(|| font_mgr.legacy_make_typeface(None, FontStyle::normal()).expect("Failed to create fallback typeface"));
-
+        
         let font = Font::new(typeface, text.font_size);
-
-        // Get font metrics and calculate consistent line height
+        
+        // Get font metrics for baseline positioning
         let (_, metrics) = font.metrics();
-        let line_height = Self::calculate_line_height(&font, text.font_size);
-
-        // Handle multi-line text with proper positioning
-        let lines: Vec<&str> = text.content.split('\n').collect();
-        let mut all_lines = Vec::new();
-
-        // First, handle explicit newlines
-        for line in lines {
-            let (text_width, _) = font.measure_str(line, None);
-
-            if text_width <= layout_data.actual_width {
-                all_lines.push(line.to_string());
-            } else {
-                // Word wrapping for lines that are too long
-                let words: Vec<&str> = line.split_whitespace().collect();
-                let space_width = font.measure_str(" ", None).0;
-                let mut current_line = String::new();
-                let mut current_line_width = 0.0;
-
-                for word in words {
-                    let word_width = font.measure_str(word, None).0;
-                    if current_line.is_empty() {
-                        current_line = word.to_string();
-                        current_line_width = word_width;
-                    } else if current_line_width + space_width + word_width <= layout_data.actual_width {
-                        current_line.push(' ');
-                        current_line.push_str(word);
-                        current_line_width += space_width + word_width;
-                    } else {
-                        all_lines.push(current_line);
-                        current_line = word.to_string();
-                        current_line_width = word_width;
-                    }
-                }
-
-                if !current_line.is_empty() {
-                    all_lines.push(current_line);
-                }
-            }
-        }
-
-        // Draw all lines with consistent positioning
-        for (i, line) in all_lines.iter().enumerate() {
+        
+        // Draw all lines using pre-calculated measurements
+        let mut current_y = layout_data.computed_y;
+        for (i, line) in text_info.lines.iter().enumerate() {
             // Calculate Y position for this line
-            // We add the ascent (which is negative) to position the text correctly
-            let y = ((i as f32 + 1.0) * line_height) - (line_height * 0.1);
-
-            canvas.draw_str(line, Point::new(layout_data.computed_x, layout_data.computed_y + y), &font, &paint);
+            let line_height = text_info.line_heights[i];
+            let y = current_y - metrics.ascent;
+            
+            canvas.draw_str(
+                line,
+                Point::new(layout_data.computed_x, y),
+                &font,
+                &paint
+            );
+            
+            current_y += line_height;
         }
     }
 }

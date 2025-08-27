@@ -5,4 +5,4 @@ pub mod layoutengine;
 pub mod text;
 pub mod debugtools;
 pub mod fontmanager;
-//pub mod style;
+pub mod styleengine;

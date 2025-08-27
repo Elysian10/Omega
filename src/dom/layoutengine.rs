@@ -22,6 +22,13 @@ pub struct LayoutData {
     pub actual_height: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct TextInfo {
+    pub lines: Vec<String>,
+    pub line_heights: Vec<f32>,
+    pub line_widths: Vec<f32>,
+}
+
 pub struct LayoutEngine;
 
 impl LayoutEngine {
@@ -88,7 +95,9 @@ impl LayoutEngine {
             }
             Some(NodeContent::Text(text)) => {
                 // Leaf node: measure the text to determine content size.
-                let (_measured_width, measured_height) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
+                //let (_measured_width, measured_height) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
+                let (measured_width, measured_height, text_info) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
+                dom.set_text_info(node_id, text_info);
                 content_box.height = measured_height;
             }
             None => {
@@ -127,7 +136,7 @@ impl LayoutEngine {
     }
 
     // In measure_text function:
-    fn measure_text(content: &str, font_family: Option<&str>, font_size: f32, max_width: f32) -> (f32, f32) {
+    fn measure_text(content: &str, font_family: Option<&str>, font_size: f32, max_width: f32) -> (f32, f32, TextInfo) {
         let font_mgr = get_thread_local_font_mgr();
         let typeface = font_mgr
             .match_family_style(font_family.unwrap_or("Arial"), FontStyle::normal())
@@ -135,23 +144,31 @@ impl LayoutEngine {
 
         let font = Font::new(typeface, font_size);
         let line_height = Self::calculate_line_height(&font, font_size);
-
+        
+        let mut text_info = TextInfo {
+            lines: Vec::new(),
+            line_heights: Vec::new(),
+            line_widths: Vec::new(),
+        };
+        
         // Handle multi-line text by splitting on newlines first
         let lines: Vec<&str> = content.split('\n').collect();
-        let mut wrapped_lines = Vec::new();
-
+        
         for line in lines {
             let (text_width, _) = font.measure_str(line, None);
-
+            
             if text_width <= max_width {
-                wrapped_lines.push(line.to_string());
+                // Single line that fits
+                text_info.lines.push(line.to_string());
+                text_info.line_heights.push(line_height);
+                text_info.line_widths.push(text_width);
             } else {
                 // Word wrapping for lines that are too long
                 let words: Vec<&str> = line.split_whitespace().collect();
                 let space_width = font.measure_str(" ", None).0;
                 let mut current_line = String::new();
                 let mut current_line_width = 0.0;
-
+                
                 for word in words {
                     let word_width = font.measure_str(word, None).0;
                     if current_line.is_empty() {
@@ -162,23 +179,27 @@ impl LayoutEngine {
                         current_line.push_str(word);
                         current_line_width += space_width + word_width;
                     } else {
-                        wrapped_lines.push(current_line);
+                        text_info.lines.push(current_line);
+                        text_info.line_heights.push(line_height);
+                        text_info.line_widths.push(current_line_width);
+                        
                         current_line = word.to_string();
                         current_line_width = word_width;
                     }
                 }
-
+                
                 if !current_line.is_empty() {
-                    wrapped_lines.push(current_line);
+                    text_info.lines.push(current_line);
+                    text_info.line_heights.push(line_height);
+                    text_info.line_widths.push(current_line_width);
                 }
             }
         }
-
-        // Calculate max width and total height
-        let max_line_width = wrapped_lines.iter().map(|line| font.measure_str(line, None).0).fold(0.0, f32::max).min(max_width);
-
-        let total_height = wrapped_lines.len() as f32 * line_height;
-
-        (max_line_width, total_height)
+        
+        // Calculate total dimensions
+        let max_line_width = text_info.line_widths.iter().fold(0.0, |arg0: f32, other: &f32| f32::max(arg0, *other)).min(max_width);
+        let total_height = text_info.line_heights.iter().sum();
+        
+        (max_line_width, total_height, text_info)
     }
 }
