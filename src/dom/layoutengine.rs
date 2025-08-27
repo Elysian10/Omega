@@ -3,9 +3,8 @@ use skia_safe::{Font, FontMgr, FontStyle};
 use std::collections::HashMap;
 
 
-use crate::dom::{dom::Dom, fontmanager::get_thread_local_font_mgr, node::NodeContent}; // SoA-compatible imports
+use crate::dom::{dom::Dom, fontmanager::get_thread_local_font_mgr, node::NodeContent};
 
-// Rect and LayoutData structs remain the same
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rect {
     pub x: f32,
@@ -32,110 +31,96 @@ pub struct TextInfo {
 pub struct LayoutEngine;
 
 impl LayoutEngine {
-    /// Main entry point, simplified to kick off the recursive DFS.
     pub fn compute_layout(dom: &mut Dom, viewport_width: f32, viewport_height: f32) {
         if let Some(root_id) = dom.root {
-            // The available space for the root is the whole viewport.
             let available_space = Rect {
                 x: 0.0,
                 y: 0.0,
                 width: viewport_width,
                 height: viewport_height,
             };
-            // Start the single-pass DFS from the root.
             Self::layout_node(dom, root_id, available_space);
         }
     }
 
-    /// The heart of the single-pass DFS layout algorithm.
-    /// This function computes its own size and layout, arranges its children,
-    /// and returns its own computed bounding box.
+    // MODIFIED: The layout function is rewritten to handle the full box model.
     fn layout_node(dom: &mut Dom, node_id: NodeId, available_space: Rect) -> Rect {
-        // In a real engine, this would come from CSS styles associated with the node.
-        let padding = (2.0, 2.0); // (horizontal, vertical) padding on each side
+        let style = dom.computed_styles.get(&node_id).cloned().unwrap_or_default();
 
-        // The content box is the space inside our padding.
+        // 1. Calculate the dimensions of the content box.
+        // The available space is for the outer edge of our margin.
+        // We subtract margin, border, and padding to find the space for content.
         let mut content_box = Rect {
-            x: available_space.x + padding.0,
-            y: available_space.y + padding.1,
-            width: available_space.width - padding.0 * 2.0,
-            height: 0.0, // We will calculate this based on content/children.
+            x: available_space.x + style.margin.left + style.border_width + style.padding.left,
+            y: available_space.y + style.margin.top + style.border_width + style.padding.top,
+            width: available_space.width - (style.margin.left + style.margin.right + style.border_width * 2.0 + style.padding.left + style.padding.right),
+            height: 0.0, // This will be determined by children or text content.
         };
 
         let node_content = dom.content.get(&node_id).cloned();
 
         match node_content {
             Some(NodeContent::Element(_)) => {
-                // This "cursor" tracks where the next child should be placed.
                 let mut child_cursor_y = content_box.y;
-
-                // --- RECURSIVE STEP (Pre-order work) ---
-                // We iterate over children and lay them out one by one.
                 let child_ids: Vec<NodeId> = node_id.children(&dom.arena).collect();
                 for child_id in child_ids {
                     let child_available_space = Rect {
                         x: content_box.x,
                         y: child_cursor_y,
                         width: content_box.width,
-                        // Height is unconstrained for now in this simple block layout
                         height: f32::INFINITY,
                     };
-
-                    // The magic happens here: recursively call layout on the child.
                     let child_rect = Self::layout_node(dom, child_id, child_available_space);
-
-                    // After the child call returns, we know its size.
-                    // Now we can update our cursor for the next sibling.
+                    // The height returned by the child includes its own margin, which correctly
+                    // positions the next sibling.
                     child_cursor_y += child_rect.height;
                 }
-
-                // --- POST-ORDER WORK ---
-                // All children have been laid out. Our content height is the total height they occupy.
                 content_box.height = child_cursor_y - content_box.y;
             }
             Some(NodeContent::Text(text)) => {
-                // Leaf node: measure the text to determine content size.
-                //let (_measured_width, measured_height) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
-                let (measured_width, measured_height, text_info) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
+                let (_measured_width, measured_height, text_info) = Self::measure_text(&text.content, text.font_family.as_deref(), text.font_size, content_box.width);
                 dom.set_text_info(node_id, text_info);
                 content_box.height = measured_height;
             }
             None => {
-                // Empty element, give it a default height
-                content_box.height = 30.0;
+                content_box.height = 0.0;
             }
         }
 
-        // --- FINALIZATION ---
-        // The node's final size includes its own padding.
-        let final_rect = Rect {
-            x: available_space.x,
-            y: available_space.y,
-            width: available_space.width, // Block elements take full available width.
-            height: content_box.height + padding.1 * 2.0,
-        };
+        // 2. Now that content height is known, calculate the total height of the element.
+        let padding_box_height = content_box.height + style.padding.top + style.padding.bottom;
+        let border_box_height = padding_box_height + (style.border_width * 2.0);
+        let final_height_with_margin = border_box_height + style.margin.top + style.margin.bottom;
 
-        // Directly apply the result to the DOM's SoA layout data. No third pass needed!
+        // 3. Store the layout data for the BORDER box. This is what the renderer will use.
+        let border_box_x = available_space.x + style.margin.left;
+        let border_box_y = available_space.y + style.margin.top;
+        let border_box_width = available_space.width - (style.margin.left + style.margin.right);
+
         dom.layout.insert(
             node_id,
             LayoutData {
-                computed_x: final_rect.x,
-                computed_y: final_rect.y,
-                actual_width: final_rect.width,
-                actual_height: final_rect.height,
+                computed_x: border_box_x,
+                computed_y: border_box_y,
+                actual_width: border_box_width,
+                actual_height: border_box_height,
             },
         );
 
-        // Return our computed rect so our parent can position us.
-        final_rect
+        // 4. Return the full outer rectangle (including margin) to the parent.
+        // This ensures the next sibling is positioned correctly.
+        Rect {
+            x: available_space.x,
+            y: available_space.y,
+            width: available_space.width,
+            height: final_height_with_margin,
+        }
     }
-
-    // The measure_text function remains exactly the same.
+    
     fn calculate_line_height(font: &Font, font_size: f32) -> f32 {
         font_size * 9.0 / 8.0
     }
 
-    // In measure_text function:
     fn measure_text(content: &str, font_family: Option<&str>, font_size: f32, max_width: f32) -> (f32, f32, TextInfo) {
         let font_mgr = get_thread_local_font_mgr();
         let typeface = font_mgr
@@ -151,19 +136,16 @@ impl LayoutEngine {
             line_widths: Vec::new(),
         };
         
-        // Handle multi-line text by splitting on newlines first
         let lines: Vec<&str> = content.split('\n').collect();
         
         for line in lines {
             let (text_width, _) = font.measure_str(line, None);
             
             if text_width <= max_width {
-                // Single line that fits
                 text_info.lines.push(line.to_string());
                 text_info.line_heights.push(line_height);
                 text_info.line_widths.push(text_width);
             } else {
-                // Word wrapping for lines that are too long
                 let words: Vec<&str> = line.split_whitespace().collect();
                 let space_width = font.measure_str(" ", None).0;
                 let mut current_line = String::new();
@@ -196,7 +178,6 @@ impl LayoutEngine {
             }
         }
         
-        // Calculate total dimensions
         let max_line_width = text_info.line_widths.iter().fold(0.0, |arg0: f32, other: &f32| f32::max(arg0, *other)).min(max_width);
         let total_height = text_info.line_heights.iter().sum();
         

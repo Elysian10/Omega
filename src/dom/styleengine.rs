@@ -16,27 +16,46 @@ impl Color {
     }
 }
 
-// User-facing style definition. Properties are optional.
+// NEW: A struct to hold values for things like padding and margin.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BoxModelValues {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+// MODIFIED: User-facing style definition now includes box model properties.
 #[derive(Debug, Clone, Default)]
 pub struct Style {
     pub background_color: Option<Color>,
-    // Future properties would go here:
-    // pub color: Option<Color>,
-    // pub width: Option<StyleValue>, // e.g. Px(100.0), Percent(50.0), Auto
-    // pub padding: Option<f32>,
+    pub color: Option<Color>, // For text
+    pub margin: Option<BoxModelValues>,
+    pub padding: Option<BoxModelValues>,
+    pub border_width: Option<f32>,
+    pub border_color: Option<Color>,
 }
 
-// Final, resolved style values. Properties are NOT optional.
+// MODIFIED: Final, resolved style values now include box model properties.
 #[derive(Debug, Clone)]
 pub struct ComputedStyle {
     pub background_color: Color,
+    pub color: Color, // For text
+    pub margin: BoxModelValues,
+    pub padding: BoxModelValues,
+    pub border_width: f32,
+    pub border_color: Color,
 }
 
 impl Default for ComputedStyle {
     fn default() -> Self {
         Self {
-            // Define the default values for the entire application
             background_color: Color::new(0.0, 0.0, 0.0, 0.0), // Transparent
+            color: Color::new(1.0, 1.0, 1.0, 1.0),            // White text
+            margin: BoxModelValues::default(),
+            padding: BoxModelValues::default(),
+            border_width: 0.0,
+            border_color: Color::new(0.0, 0.0, 0.0, 1.0), // Opaque black
         }
     }
 }
@@ -44,19 +63,14 @@ impl Default for ComputedStyle {
 pub struct StyleEngine;
 
 impl StyleEngine {
-    /// The main entry point for the style computation pass.
-    /// Traverses the DOM tree and resolves styles for each node.
     pub fn compute_styles(dom: &mut Dom) {
         if let Some(root_id) = dom.root {
-            // We need to collect all nodes first to avoid borrowing issues with `dom`
             let all_nodes: Vec<NodeId> = root_id.descendants(&dom.arena).collect();
             
             for node_id in all_nodes {
-                // Get the user-defined style, or a default empty one if not present
                 let user_style = dom.styles.get(&node_id).cloned().unwrap_or_default();
 
-                // Get the parent's computed style, if it exists
-                let parent_style = node_id.ancestors(&dom.arena).nth(1) // nth(0) is the node itself
+                let parent_style = node_id.ancestors(&dom.arena).nth(1)
                     .and_then(|parent_id| dom.computed_styles.get(&parent_id));
 
                 let computed_style = Self::resolve_style(&user_style, parent_style);
@@ -66,25 +80,42 @@ impl StyleEngine {
         }
     }
 
-    /// Resolves a single node's style based on its own style, its parent's, and defaults.
+    // MODIFIED: The resolver now handles all the new properties.
     fn resolve_style(style: &Style, parent_style: Option<&ComputedStyle>) -> ComputedStyle {
-        let mut computed = ComputedStyle::default();
+        let mut computed = parent_style.cloned().unwrap_or_default();
 
-        // --- Resolve Background Color ---
-        // This property is NOT inherited.
-        // 1. Check for a direct value.
+        // --- Resolve Background Color --- (Not inherited)
         if let Some(color) = style.background_color {
             computed.background_color = color;
-        } 
-        // 2. No inheritance, so we just stick with the default if no direct value is found.
+        }
 
-        // --- Example of an INHERITED property (if we had one) ---
-        // if let Some(color) = style.color {
-        //     computed.color = color; // 1. Direct value
-        // } else if let Some(parent) = parent_style {
-        //     computed.color = parent.color; // 2. Inherited value
-        // }
-        // 3. The default from ComputedStyle::default() is used if neither applies.
+        // --- Resolve Margin --- (Not inherited)
+        if let Some(margin) = style.margin {
+            computed.margin = margin;
+        }
+
+        // --- Resolve Padding --- (Not inherited)
+        if let Some(padding) = style.padding {
+            computed.padding = padding;
+        }
+
+        // --- Resolve Border Width --- (Not inherited)
+        if let Some(width) = style.border_width {
+            computed.border_width = width;
+        }
+
+        // --- Resolve Border Color --- (Not inherited)
+        if let Some(color) = style.border_color {
+            computed.border_color = color;
+        }
+
+        // --- Resolve Text Color --- (Inherited)
+        if let Some(color) = style.color {
+            computed.color = color; // 1. Direct value
+        } else if let Some(parent) = parent_style {
+            computed.color = parent.color; // 2. Inherited value
+        }
+        // 3. The default is used if neither applies.
 
         computed
     }

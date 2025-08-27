@@ -66,7 +66,6 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
                 //debug_tools.log(event.physical_key::);
                 if let (PhysicalKey::Code(KeyCode::F12), ElementState::Pressed) = (event.physical_key, event.state) {
                     println!("F12 pressed!");
-                    debug_tools = !debug_tools;
                     debug_tools.log("F12");
                     window.request_redraw();
                     // Your logic here

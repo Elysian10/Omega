@@ -3,7 +3,7 @@ use indextree::NodeId;
 use crate::dom::{
     dom::Dom,
     element::Element,
-    styleengine::{Color, Style},
+    styleengine::{BoxModelValues, Color, Style},
     text::Text,
 };
 
@@ -27,6 +27,7 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
         parent_id,
         Style {
             background_color: Some(Color::new(1.0, 1.0, 0.0, 1.0)),
+            padding: Some(BoxModelValues{top: 20.0, right: 20.0, bottom: 20.0, left: 20.0}),
             ..Default::default()
         },
     );
@@ -36,7 +37,7 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
     dom.set_style(
         child1_id,
         Style {
-            background_color: Some(Color::new(0.0, 0.0, 1.0, 0.3)),
+            background_color: Some(Color::new(0.0, 0.0, 1.0, 1.0)),
             ..Default::default()
         },
     );
@@ -46,14 +47,14 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
     dom.set_style(
         child2_id,
         Style {
-            background_color: Some(Color::new(1.0, 0.0, 0.0, 0.3)),
+            background_color: Some(Color::new(1.0, 0.0, 0.0, 1.0)),
             ..Default::default()
         },
     );
 
     // Node 3 (Text)
     let child3_node_id = dom.create_text(Text::new("h test\nme g"));
-    dom.append_child(parent_id, child3_node_id);
+    dom.append_child(child2_id, child3_node_id);
     // You could set a background color for text, too!
     dom.set_style(
         child3_node_id,
