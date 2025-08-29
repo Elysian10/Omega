@@ -4,7 +4,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use crate::dom::{
     debugtools::DebugTools, dom::{Dom, NodeContent, NodeId}, fontmanager::get_thread_local_font_mgr, layoutengine::{LayoutData, TextInfo}, styleengine::{BorderStyle, ComputedElementStyle, ComputedTextStyle}, text::Text
 };
-use skia_safe::{surfaces, AlphaType, Canvas, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Point, Rect};
+use skia_safe::{surfaces, AlphaType, Canvas, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Path, Point, Rect};
 
 pub struct SkiaRenderer;
 
@@ -100,50 +100,88 @@ impl SkiaRenderer {
 
     // Draws the border and then the background inset within it.
     fn draw_element(canvas: &Canvas, style: &ComputedElementStyle, layout_data: LayoutData) {
-        // Handle border drawing based on the BorderStyle enum
-        match style.border {
-            BorderStyle::None => {
-                // No border to draw
-            }
-            BorderStyle::Solid { width, color } => {
-                // Draw the border
-                let border_rect = Rect::from_xywh(
-                    layout_data.computed_x, 
-                    layout_data.computed_y, 
-                    layout_data.actual_width, 
-                    layout_data.actual_height
-                );
-                let border_color = Color4f::new(color.r, color.g, color.b, color.a);
-                let mut border_paint = Paint::new(border_color, None);
-                border_paint.set_style(PaintStyle::Fill);
-                canvas.draw_rect(border_rect, &border_paint);
-            }
-        }
-
-        // Draw the background (inset from the border if there is one)
-        let border_width = match style.border {
-            BorderStyle::None => 0.0,
-            BorderStyle::Solid { width, .. } => width,
-        };
+    let x = layout_data.computed_x;
+    let y = layout_data.computed_y;
+    let width = layout_data.actual_width;
+    let height = layout_data.actual_height;
+    
+    // Extract border widths
+    let top_width = style.border.top.map(|b| b.width).unwrap_or(0.0);
+    let right_width = style.border.right.map(|b| b.width).unwrap_or(0.0);
+    let bottom_width = style.border.bottom.map(|b| b.width).unwrap_or(0.0);
+    let left_width = style.border.left.map(|b| b.width).unwrap_or(0.0);
+    
+    // Draw borders with proper mitered corners
+    if top_width > 0.0 {
+        let top_color = style.border.top.as_ref().unwrap().color;
+        let mut path = Path::new();
+        path.move_to(Point::new(x, y));
+        path.line_to(Point::new(x + width, y));
+        path.line_to(Point::new(x + width - right_width, y + top_width));
+        path.line_to(Point::new(x + left_width, y + top_width));
+        path.close();
         
-        if style.background_color.a > 0.0 {
-            let background_rect = Rect::from_xywh(
-                layout_data.computed_x + border_width,
-                layout_data.computed_y + border_width,
-                layout_data.actual_width - (border_width * 2.0),
-                layout_data.actual_height - (border_width * 2.0)
-            );
-            let bg_color = Color4f::new(
-                style.background_color.r, 
-                style.background_color.g, 
-                style.background_color.b, 
-                style.background_color.a
-            );
-            let mut bg_paint = Paint::new(bg_color, None);
-            bg_paint.set_style(PaintStyle::Fill);
-            canvas.draw_rect(background_rect, &bg_paint);
-        }
+        let mut paint = Paint::new(Color4f::from(top_color), None);
+        paint.set_style(PaintStyle::Fill);
+        canvas.draw_path(&path, &paint);
     }
+    
+    if right_width > 0.0 {
+        let right_color = style.border.right.as_ref().unwrap().color;
+        let mut path = Path::new();
+        path.move_to(Point::new(x + width, y));
+        path.line_to(Point::new(x + width, y + height));
+        path.line_to(Point::new(x + width - right_width, y + height - bottom_width));
+        path.line_to(Point::new(x + width - right_width, y + top_width));
+        path.close();
+        
+        let mut paint = Paint::new(Color4f::from(right_color), None);
+        paint.set_style(PaintStyle::Fill);
+        canvas.draw_path(&path, &paint);
+    }
+    
+    if bottom_width > 0.0 {
+        let bottom_color = style.border.bottom.as_ref().unwrap().color;
+        let mut path = Path::new();
+        path.move_to(Point::new(x + width, y + height));
+        path.line_to(Point::new(x, y + height));
+        path.line_to(Point::new(x + left_width, y + height - bottom_width));
+        path.line_to(Point::new(x + width - right_width, y + height - bottom_width));
+        path.close();
+        
+        let mut paint = Paint::new(Color4f::from(bottom_color), None);
+        paint.set_style(PaintStyle::Fill);
+        canvas.draw_path(&path, &paint);
+    }
+    
+    if left_width > 0.0 {
+        let left_color = style.border.left.as_ref().unwrap().color;
+        let mut path = Path::new();
+        path.move_to(Point::new(x, y + height));
+        path.line_to(Point::new(x, y));
+        path.line_to(Point::new(x + left_width, y + top_width));
+        path.line_to(Point::new(x + left_width, y + height - bottom_width));
+        path.close();
+        
+        let mut paint = Paint::new(Color4f::from(left_color), None);
+        paint.set_style(PaintStyle::Fill);
+        canvas.draw_path(&path, &paint);
+    }
+    
+    // Draw the background (inset from borders)
+    if style.background_color.a > 0.0 {
+        let background_rect = Rect::from_xywh(
+            x + left_width,
+            y + top_width,
+            width - (left_width + right_width),
+            height - (top_width + bottom_width)
+        );
+        
+        let mut bg_paint = Paint::new(Color4f::from(style.background_color), None);
+        bg_paint.set_style(PaintStyle::Fill);
+        canvas.draw_rect(background_rect, &bg_paint);
+    }
+}
 
     // Draws the element's box first, then positions the text inside the padding area.
     fn draw_text(canvas: &Canvas, text: &Text, style: &ComputedTextStyle, layout_data: LayoutData, text_info: &TextInfo) {

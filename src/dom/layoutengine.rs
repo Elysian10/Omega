@@ -41,110 +41,110 @@ impl Dom {
     }
 
     fn layout_node(&mut self, node_id: NodeId, available_space: Rect) -> Rect {
-        let key: slotmap::DefaultKey = node_id.into();
+    let key: slotmap::DefaultKey = node_id.into();
+    
+    // Get node content and release borrow immediately
+    let is_element = matches!(self.content.get(key), Some(NodeContent::Element(_)));
+    
+    if is_element {
+        // Get element style and children list, then release borrow
+        let element_style = self.computed_element_styles.get(key).unwrap().clone();
+        let child_ids = self.children.get(key).cloned().unwrap_or_default();
         
-        // Get node content and release borrow immediately
-        let is_element = matches!(self.content.get(key), Some(NodeContent::Element(_)));
+        // Get border widths for each side
+        let border_left = element_style.border.left.map(|b| b.width).unwrap_or(0.0);
+        let border_right = element_style.border.right.map(|b| b.width).unwrap_or(0.0);
+        let border_top = element_style.border.top.map(|b| b.width).unwrap_or(0.0);
+        let border_bottom = element_style.border.bottom.map(|b| b.width).unwrap_or(0.0);
         
-        if is_element {
-            // Get element style and children list, then release borrow
-            let element_style = self.computed_element_styles.get(key).unwrap().clone();
-            let child_ids = self.children.get(key).cloned().unwrap_or_default();
-            
-            // Get border width
-            let border_width = match element_style.border {
-                BorderStyle::Solid { width, .. } => width,
-                BorderStyle::None => 0.0,
+        // Calculate content box with per-side border widths
+        let mut content_box = Rect {
+            x: available_space.x + element_style.margin.left + border_left + element_style.padding.left,
+            y: available_space.y + element_style.margin.top + border_top + element_style.padding.top,
+            width: available_space.width - (element_style.margin.left + element_style.margin.right + 
+                  border_left + border_right + element_style.padding.left + element_style.padding.right),
+            height: 0.0,
+        };
+        
+        // Layout children
+        let mut child_cursor_y = content_box.y;
+        for child_id in child_ids {
+            let child_available_space = Rect {
+                x: content_box.x,
+                y: child_cursor_y,
+                width: content_box.width,
+                height: f32::INFINITY,
             };
-            
-            // Calculate content box
-            let mut content_box = Rect {
-                x: available_space.x + element_style.margin.left + border_width + element_style.padding.left,
-                y: available_space.y + element_style.margin.top + border_width + element_style.padding.top,
-                width: available_space.width - (element_style.margin.left + element_style.margin.right + 
-                      border_width * 2.0 + element_style.padding.left + element_style.padding.right),
-                height: 0.0,
-            };
-            
-            // Layout children
-            let mut child_cursor_y = content_box.y;
-            for child_id in child_ids {
-                let child_available_space = Rect {
-                    x: content_box.x,
-                    y: child_cursor_y,
-                    width: content_box.width,
-                    height: f32::INFINITY,
-                };
-                let child_rect = self.layout_node(child_id, child_available_space);
-                child_cursor_y += child_rect.height;
-            }
-            
-            content_box.height = child_cursor_y - content_box.y;
-            
-            // Calculate final dimensions
-            let padding_box_height = content_box.height + element_style.padding.top + element_style.padding.bottom;
-            let border_box_height = padding_box_height + (border_width * 2.0);
-            let final_height_with_margin = border_box_height + element_style.margin.top + element_style.margin.bottom;
-            
-            let border_box_x = available_space.x + element_style.margin.left;
-            let border_box_y = available_space.y + element_style.margin.top;
-            let border_box_width = available_space.width - (element_style.margin.left + element_style.margin.right);
-            
-            // Store layout
-            self.layout.insert(
-                key,
-                LayoutData {
-                    computed_x: border_box_x,
-                    computed_y: border_box_y,
-                    actual_width: border_box_width,
-                    actual_height: border_box_height,
-                },
-            );
-            
-            Rect {
-                x: available_space.x,
-                y: available_space.y,
-                width: available_space.width,
-                height: final_height_with_margin,
-            }
-        } else {
-            // Text node - get text content and style, then release borrow
-            let text = if let Some(NodeContent::Text(text)) = self.content.get(key) {
-                text.clone()
-            } else {
-                panic!("Expected text node");
-            };
-            
-            let text_style = self.computed_text_styles.get(key).unwrap().clone();
-            
-            // Measure text
-            let (_measured_width, measured_height, text_info) = 
-                Self::measure_text(&text.content, Some(&text_style.font_family), text_style.font_size, available_space.width);
-            
-            self.text_info.insert(key, text_info);
-            
-            // Text nodes don't have margin/border/padding in this simplified model
-            let final_rect = Rect {
-                x: available_space.x,
-                y: available_space.y,
-                width: available_space.width,
-                height: measured_height,
-            };
-            
-            // Store layout (text nodes use the full available width)
-            self.layout.insert(
-                key,
-                LayoutData {
-                    computed_x: available_space.x,
-                    computed_y: available_space.y,
-                    actual_width: available_space.width,
-                    actual_height: measured_height,
-                },
-            );
-            
-            final_rect
+            let child_rect = self.layout_node(child_id, child_available_space);
+            child_cursor_y += child_rect.height;
         }
+        
+        content_box.height = child_cursor_y - content_box.y;
+        
+        // Calculate final dimensions with per-side border widths
+        let padding_box_height = content_box.height + element_style.padding.top + element_style.padding.bottom;
+        let border_box_height = padding_box_height + border_top + border_bottom;
+        let final_height_with_margin = border_box_height + element_style.margin.top + element_style.margin.bottom;
+        
+        let border_box_x = available_space.x + element_style.margin.left;
+        let border_box_y = available_space.y + element_style.margin.top;
+        let border_box_width = available_space.width - (element_style.margin.left + element_style.margin.right);
+        
+        // Store layout
+        self.layout.insert(
+            key,
+            LayoutData {
+                computed_x: border_box_x,
+                computed_y: border_box_y,
+                actual_width: border_box_width,
+                actual_height: border_box_height,
+            },
+        );
+        
+        Rect {
+            x: available_space.x,
+            y: available_space.y,
+            width: available_space.width,
+            height: final_height_with_margin,
+        }
+    } else {
+        // Text node - get text content and style, then release borrow
+        let text = if let Some(NodeContent::Text(text)) = self.content.get(key) {
+            text.clone()
+        } else {
+            panic!("Expected text node");
+        };
+        
+        let text_style = self.computed_text_styles.get(key).unwrap().clone();
+        
+        // Measure text
+        let (_measured_width, measured_height, text_info) = 
+            Self::measure_text(&text.content, Some(&text_style.font_family), text_style.font_size, available_space.width);
+        
+        self.text_info.insert(key, text_info);
+        
+        // Text nodes don't have margin/border/padding in this simplified model
+        let final_rect = Rect {
+            x: available_space.x,
+            y: available_space.y,
+            width: available_space.width,
+            height: measured_height,
+        };
+        
+        // Store layout (text nodes use the full available width)
+        self.layout.insert(
+            key,
+            LayoutData {
+                computed_x: available_space.x,
+                computed_y: available_space.y,
+                actual_width: available_space.width,
+                actual_height: measured_height,
+            },
+        );
+        
+        final_rect
     }
+}
 
     fn calculate_line_height(font: &Font, font_size: f32) -> f32 {
         font_size * 9.0 / 8.0

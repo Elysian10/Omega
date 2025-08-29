@@ -1,5 +1,7 @@
 // styleengine.rs
 
+use skia_safe::Color4f;
+
 use crate::dom::dom::{Dom, NodeContent};
 
 #[derive(Debug, Clone, Copy)]
@@ -25,25 +27,33 @@ pub struct BoxModelValues {
 }
 
 // An enum to represent different border styles.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BorderStyle {
+    pub top: Option<BorderSide>,
+    pub right: Option<BorderSide>,
+    pub bottom: Option<BorderSide>,
+    pub left: Option<BorderSide>,
+}
+
 #[derive(Debug, Clone, Copy)]
-pub enum BorderStyle {
-    None,
-    Solid { width: f32, color: Color },
+pub struct BorderSide {
+    pub width: f32,
+    pub color: Color,
 }
 
 // Element style with width and height properties
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ElementStyle {
-    pub width: Option<f32>,      // None means "auto"
-    pub height: Option<f32>,     // None means "auto"
+    pub width: Option<f32>,
+    pub height: Option<f32>,
     pub background_color: Option<Color>,
     pub color: Option<Color>,
     pub margin: Option<BoxModelValues>,
     pub padding: Option<BoxModelValues>,
-    pub border: Option<BorderStyle>,
+    pub border: Option<BorderStyle>
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TextStyle {
     pub color: Option<Color>,
     pub font_size: Option<f32>,
@@ -53,12 +63,12 @@ pub struct TextStyle {
 // Computed element style with width and height properties
 #[derive(Debug, Clone)]
 pub struct ComputedElementStyle {
-    pub width: Option<f32>,      // None means "auto"
-    pub height: Option<f32>,     // None means "auto"
+    pub width: Option<f32>,
+    pub height: Option<f32>,
     pub background_color: Color,
     pub margin: BoxModelValues,
     pub padding: BoxModelValues,
-    pub border: BorderStyle,
+    pub border: BorderStyle, // Changed from BorderStyle enum to BorderStyle struct
 }
 
 #[derive(Debug, Clone)]
@@ -74,15 +84,81 @@ pub enum ComputedStyle {
     Text(ComputedTextStyle),
 }
 
+impl From<Color> for Color4f {
+    fn from(color: Color) -> Self {
+        Color4f::new(color.r, color.g, color.b, color.a)
+    }
+}
+
+impl BorderStyle {
+    pub fn uniform(width: f32, color: Color) -> Self {
+        let side = BorderSide { width, color };
+        Self {
+            top: Some(side),
+            right: Some(side),
+            bottom: Some(side),
+            left: Some(side),
+        }
+    }
+    
+    pub fn all(width: f32, color: Color) -> Self {
+        Self::uniform(width, color)
+    }
+    
+    pub fn top(mut self, width: f32, color: Color) -> Self {
+        self.top = Some(BorderSide { width, color });
+        self
+    }
+    
+    pub fn right(mut self, width: f32, color: Color) -> Self {
+        self.right = Some(BorderSide { width, color });
+        self
+    }
+    
+    pub fn bottom(mut self, width: f32, color: Color) -> Self {
+        self.bottom = Some(BorderSide { width, color });
+        self
+    }
+    
+    pub fn left(mut self, width: f32, color: Color) -> Self {
+        self.left = Some(BorderSide { width, color });
+        self
+    }
+}
+
 impl Default for ComputedElementStyle {
     fn default() -> Self {
         Self {
             width: None,
             height: None,
-            background_color: Color::new(0.0, 0.0, 0.0, 0.0), // Transparent
+            background_color: Color::new(0.0, 0.0, 0.0, 1.0), // Black background
             margin: BoxModelValues::default(),
             padding: BoxModelValues::default(),
-            border: BorderStyle::None, // Default is no border
+            border: BorderStyle::default(), // Default is no border on any side
+        }
+    }
+}
+
+impl Default for ElementStyle {
+    fn default() -> Self {
+        Self {
+            width: None,
+            height: None,
+            background_color: None, // Will default to black in computed style
+            color: None, // Will default to white in computed text style
+            margin: None,
+            padding: None,
+            border: None,
+        }
+    }
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self {
+            color: None, // Will default to white in computed text style
+            font_size: None,
+            font_family: None,
         }
     }
 }
@@ -131,15 +207,8 @@ impl Dom {
         style: &ElementStyle, 
         parent_style: Option<&ComputedElementStyle>
     ) -> ComputedElementStyle {
-        // Start with defaults
-        let mut computed = ComputedElementStyle {
-            width: style.width,
-            height: style.height,
-            background_color: Color::new(0.0, 0.0, 0.0, 0.0), // Transparent
-            margin: BoxModelValues::default(),
-            padding: BoxModelValues::default(),
-            border: BorderStyle::None,
-        };
+        // Start with dark theme defaults
+        let mut computed = ComputedElementStyle::default();
         
         // Apply element-specific styling
         if let Some(bg_color) = style.background_color {
@@ -167,7 +236,7 @@ impl Dom {
     ) -> ComputedTextStyle {
         // Start with defaults
         let mut computed = ComputedTextStyle {
-            color: Color::new(0.0, 0.0, 0.0, 1.0), // Black text by default
+            color: Color::new(1.0, 1.0, 1.0, 1.0), // White text by default
             font_size: 16.0,
             font_family: "Arial".to_string(),
         };
