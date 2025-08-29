@@ -1,31 +1,16 @@
-use indextree::NodeId;
-
+// view.rs
 use crate::dom::{
-    dom::Dom,
-    element::Element,
-    styleengine::{BoxModelValues, Color, Style},
-    text::Text,
+    dom::NodeId, element::Element, styleengine::{BoxModelValues, Color, ElementStyle, TextStyle}, text::Text, Dom
 };
 
 pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
-    // let child = Element::new(Color::new(0.0, 0.0, 1.0, 0.3));
-    // let child_node_id = dom.create_element(child);
-    // dom.append_child(parent_id, child_node_id);
-
-    // let child2 = Element::new(Color::new(1.0, 0.0, 1.0, 0.3));
-    // let child2_node_id = dom.create_element(child2);
-    // dom.append_child(parent_id, child2_node_id);
-
-    // let child3 = Text::new("h test\nme g", Color::new(1.0, 1.0, 1.0, 1.0));
-
-    // let child3_node_id = dom.create_text(child3);
-
-    // dom.append_child(parent_id, child3_node_id);
-    let parent_id = dom.create_element(Element::new()); // Element is just a "tag" now
+    let parent_id = dom.create_element(Element::new());
     dom.append_child(root_node_id, parent_id);
-    dom.set_style(
+    
+    // Set element style using the new method
+    dom.set_element_style(
         parent_id,
-        Style {
+        ElementStyle {
             background_color: Some(Color::new(1.0, 1.0, 0.0, 1.0)),
             padding: Some(BoxModelValues{top: 20.0, right: 20.0, bottom: 20.0, left: 20.0}),
             ..Default::default()
@@ -34,9 +19,11 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
 
     let child1_id = dom.create_element(Element::new());
     dom.append_child(parent_id, child1_id);
-    dom.set_style(
+    
+    // Set element style using the new method
+    dom.set_element_style(
         child1_id,
-        Style {
+        ElementStyle {
             background_color: Some(Color::new(0.0, 0.0, 1.0, 1.0)),
             ..Default::default()
         },
@@ -44,23 +31,28 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
 
     let child2_id = dom.create_element(Element::new());
     dom.append_child(parent_id, child2_id);
-    dom.set_style(
+    
+    // Set element style using the new method
+    dom.set_element_style(
         child2_id,
-        Style {
+        ElementStyle {
             background_color: Some(Color::new(1.0, 0.0, 0.0, 1.0)),
             ..Default::default()
         },
     );
 
-    // Node 3 (Text)
+    // Create text node
     let child3_node_id = dom.create_text(Text::new("h test\nme g"));
     dom.append_child(child2_id, child3_node_id);
-    // You could set a background color for text, too!
-    dom.set_style(
+    
+    // Set text style using the new method (not element style)
+    // Text nodes don't have background color in the new system
+    dom.set_text_style(
         child3_node_id,
-        Style {
-            background_color: Some(Color::new(1.0, 1.0, 1.0, 1.0)),
-            ..Default::default()
+        TextStyle {
+            color: Some(Color::new(0.0, 0.0, 0.0, 1.0)), // Black text
+            font_size: Some(16.0),
+            font_family: Some("Arial".to_string()),
         },
     );
 }

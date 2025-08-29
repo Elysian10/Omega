@@ -1,71 +1,163 @@
-use indextree::{Arena, NodeId};
-use std::collections::HashMap;
+// dom.rs
+use slotmap::{SlotMap, SecondaryMap};
+use crate::dom::{
+    element::Element, 
+    layoutengine::{LayoutData, TextInfo},
+    styleengine::{ComputedElementStyle, ComputedTextStyle, ElementStyle, TextStyle}, 
+    text::Text
+};
 
-use crate::dom::{element::Element, layoutengine::{LayoutData, TextInfo}, node::NodeContent, styleengine::{ComputedStyle, Style}, text::Text};
+// Define NodeContent enum here since we removed node.rs
+#[derive(Debug, Clone)]
+pub enum NodeContent {
+    Element(Element),
+    Text(Text),
+}
 
+// New type for node IDs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(slotmap::DefaultKey);
+
+// Convert from SlotMap key to NodeId
+impl From<slotmap::DefaultKey> for NodeId {
+    fn from(key: slotmap::DefaultKey) -> Self {
+        NodeId(key)
+    }
+}
+
+// Convert from NodeId to SlotMap key
+impl From<NodeId> for slotmap::DefaultKey {
+    fn from(node_id: NodeId) -> Self {
+        node_id.0
+    }
+}
 
 #[derive(Debug)]
 pub struct Dom {
-    pub arena: Arena<()>, 
+    // Tree structure using SlotMap
+    nodes: SlotMap<slotmap::DefaultKey, ()>,
+    pub children: SecondaryMap<slotmap::DefaultKey, Vec<NodeId>>,
+    parents: SecondaryMap<slotmap::DefaultKey, Option<NodeId>>,
     pub root: Option<NodeId>,
-
+    
     // SoA Data Collections
-    pub content: HashMap<NodeId, NodeContent>,
-    pub layout: HashMap<NodeId, LayoutData>,
-    pub text_info: HashMap<NodeId, TextInfo>,
-    pub dirty: HashMap<NodeId, bool>,
-    pub styles: HashMap<NodeId, Style>,
-    pub computed_styles: HashMap<NodeId, ComputedStyle>
+    pub content: SecondaryMap<slotmap::DefaultKey, NodeContent>,
+    pub layout: SecondaryMap<slotmap::DefaultKey, LayoutData>,
+    pub text_info: SecondaryMap<slotmap::DefaultKey, TextInfo>,
+    pub dirty: SecondaryMap<slotmap::DefaultKey, bool>,
+    
+    // Separate style storage
+    pub element_styles: SecondaryMap<slotmap::DefaultKey, ElementStyle>,
+    pub text_styles: SecondaryMap<slotmap::DefaultKey, TextStyle>,
+    pub computed_element_styles: SecondaryMap<slotmap::DefaultKey, ComputedElementStyle>,
+    pub computed_text_styles: SecondaryMap<slotmap::DefaultKey, ComputedTextStyle>,
 }
 
 impl Dom {
     pub fn new() -> Self {
         Self {
-            arena: Arena::new(),
+            nodes: SlotMap::with_key(),
+            children: SecondaryMap::new(),
+            parents: SecondaryMap::new(),
             root: None,
-            content: HashMap::new(),
-            layout: HashMap::new(),
-            text_info: HashMap::new(),
-            dirty: HashMap::new(),
-            styles: HashMap::new(),
-            computed_styles: HashMap::new(),
+            content: SecondaryMap::new(),
+            layout: SecondaryMap::new(),
+            text_info: SecondaryMap::new(),
+            dirty: SecondaryMap::new(),
+            element_styles: SecondaryMap::new(),
+            text_styles: SecondaryMap::new(),
+            computed_element_styles: SecondaryMap::new(),
+            computed_text_styles: SecondaryMap::new(),
         }
     }
 
-    pub fn set_style(&mut self, node_id: NodeId, style: Style) {
-        self.styles.insert(node_id, style);
-        // Mark as dirty, since styles affect layout/rendering
-        self.dirty.insert(node_id, true); 
-    }
-
-    pub fn set_text_info(&mut self, node_id: NodeId, text_info: TextInfo) {
-        self.text_info.insert(node_id, text_info);
-    }
     
-    // Node creation methods now update the relevant HashMaps
+    // Node creation methods
     pub fn create_element(&mut self, element: Element) -> NodeId {
-        let node_id = self.arena.new_node(());
-        self.content.insert(node_id, NodeContent::Element(element));
-        self.dirty.insert(node_id, true);
-        // We also give it a default style entry
-        self.styles.insert(node_id, Style::default());
+        let key = self.nodes.insert(());
+        let node_id = NodeId(key);
+        
+        self.content.insert(key, NodeContent::Element(element));
+        self.element_styles.insert(key, ElementStyle::default());
+        self.dirty.insert(key, true);
+        self.children.insert(key, Vec::new());
+        self.parents.insert(key, None);
+        
         node_id
     }
 
     pub fn create_text(&mut self, text: Text) -> NodeId {
-        let node_id = self.arena.new_node(());
-        self.content.insert(node_id, NodeContent::Text(text));
-        self.dirty.insert(node_id, true);
-        self.styles.insert(node_id, Style::default());
+        let key = self.nodes.insert(());
+        let node_id = NodeId(key);
+        
+        self.content.insert(key, NodeContent::Text(text));
+        self.text_styles.insert(key, TextStyle::default());
+        self.dirty.insert(key, true);
+        self.children.insert(key, Vec::new());
+        self.parents.insert(key, None);
+        
         node_id
     }
     
-    // Other methods like set_root and append_child remain largely the same
+    // Style setters
+    pub fn set_element_style(&mut self, node_id: NodeId, style: ElementStyle) {
+        self.element_styles.insert(node_id.into(), style);
+        self.dirty.insert(node_id.into(), true);
+    }
+    
+    pub fn set_text_style(&mut self, node_id: NodeId, style: TextStyle) {
+        self.text_styles.insert(node_id.into(), style);
+        self.dirty.insert(node_id.into(), true);
+    }
+    
+    pub fn set_text_info(&mut self, node_id: NodeId, text_info: TextInfo) {
+        self.text_info.insert(node_id.into(), text_info);
+    }
+    
+    // Other methods
     pub fn set_root(&mut self, node_id: NodeId) {
         self.root = Some(node_id);
     }
     
     pub fn append_child(&mut self, parent_id: NodeId, child_id: NodeId) {
-        parent_id.append(child_id, &mut self.arena);
+        let parent_key: slotmap::DefaultKey = parent_id.into();
+        let child_key: slotmap::DefaultKey = child_id.into();
+        
+        // Add child to parent's children list
+        if let Some(children) = self.children.get_mut(parent_key) {
+            children.push(child_id);
+        }
+        
+        // Set child's parent
+        self.parents.insert(child_key, Some(parent_id));
+    }
+    
+    // Helper method to get children of a node
+    pub fn children(&self, node_id: NodeId) -> Option<&Vec<NodeId>> {
+        self.children.get(node_id.into())
+    }
+    
+    // Helper method to get parent of a node
+    pub fn parent(&self, node_id: NodeId) -> Option<NodeId> {
+        self.parents.get(node_id.into()).and_then(|p| *p)
+    }
+    
+    // Method to collect all nodes in depth-first order
+    pub fn collect_nodes_depth_first(&self, root_id: NodeId) -> Vec<NodeId> {
+        let mut nodes = Vec::new();
+        let mut stack = vec![root_id];
+        
+        while let Some(node_id) = stack.pop() {
+            nodes.push(node_id);
+            
+            // Push children in reverse order so they're processed in correct order
+            if let Some(children) = self.children.get(node_id.into()) {
+                for &child_id in children.iter().rev() {
+                    stack.push(child_id);
+                }
+            }
+        }
+        
+        nodes
     }
 }

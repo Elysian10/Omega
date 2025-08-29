@@ -1,8 +1,12 @@
+// dom/mod.rs
 pub mod dom;
 pub mod element;
-pub mod node;
 pub mod layoutengine;
-pub mod text;
-pub mod debugtools;
-pub mod fontmanager;
+pub mod node;
 pub mod styleengine;
+pub mod text;
+pub mod fontmanager;
+pub mod debugtools;
+
+// Re-export commonly used types
+pub use dom::Dom;

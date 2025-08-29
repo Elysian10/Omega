@@ -1,27 +1,12 @@
-use crate::dom::styleengine::Color;
-
+// element.rs
 #[derive(Debug, Clone)]
 pub struct Element {
-    pub width: Option<f32>,  // None means "auto" or "unspecified"
-    pub height: Option<f32>, // None means "auto" or "unspecified"
+    // This is now just a marker struct since all styling is handled
+    // through the style system in Taffy's approach
 }
 
 impl Element {
     pub fn new() -> Self {
-        Self {
-            width: None,
-            height: None,
-        }
-    }
-
-    pub fn with_width(mut self, width: f32) -> Self {
-        self.width = Some(width);
-        self
-    }
-    
-    pub fn with_height(mut self, height: f32) -> Self {
-        self.height = Some(height);
-        self
+        Self {}
     }
 }
-

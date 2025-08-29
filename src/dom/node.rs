@@ -1,10 +1,6 @@
-use crate::dom::{element::Element, layoutengine::LayoutData, text::Text};
+use crate::dom::{dom::NodeContent, element::Element, layoutengine::LayoutData, text::Text};
 
-#[derive(Debug, Clone)]
-pub enum NodeContent {
-    Element(Element),
-    Text(Text),
-}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     
