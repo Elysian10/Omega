@@ -1,6 +1,6 @@
 use std::time::Duration;
 use skia_safe::{Canvas, Color4f, Paint, Point, Font, FontStyle};
-use crate::dom::fontmanager::get_thread_local_font_mgr;
+use crate::dom::{dom::NodeId, events::EventSystem, fontmanager::get_thread_local_font_mgr};
 
 pub struct DebugTools {
     logs: Vec<String>,
@@ -30,7 +30,7 @@ impl DebugTools {
         self.performance_metrics.push(format!("Render: {:.2}ms", render_time.as_secs_f64() * 1000.0));
     }
     
-    pub fn draw_debug_tools(&self, canvas: &Canvas, x: f32, y: f32, width: f32, height: f32) {
+    pub fn draw_debug_tools(&self, canvas: &Canvas, event_system: &EventSystem, x: f32, y: f32, width: f32, height: f32) {
         // Use the thread-local font manager
         let font_mgr = get_thread_local_font_mgr();
         let typeface = font_mgr
@@ -63,11 +63,25 @@ impl DebugTools {
         line_paint.set_style(skia_safe::PaintStyle::Stroke);
         canvas.draw_line(Point::new(x + 5.0, current_y), Point::new(x + width - 5.0, current_y), &line_paint);
         current_y += 15.0;
+
+        if let Some(node_id) = event_system.get_hovered_node() {
+            let text = format!("Hovered: {:?}", node_id);
+            
+            canvas.draw_str(
+                &text,
+                Point::new(x + 150.0, y + 20.0),
+                &font,
+                &text_paint,
+            );
+        }
         
         // Draw logs below the separator
         for log in &self.logs {
             canvas.draw_str(log, Point::new(x + 10.0, current_y), &font, &text_paint);
             current_y += 20.0;
         }
+        
     }
+
+    
 }

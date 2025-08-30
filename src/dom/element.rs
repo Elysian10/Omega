@@ -1,4 +1,4 @@
-// element.rs
+// /src/dom/element.rs
 #[derive(Debug, Clone)]
 pub struct Element {
     // This is now just a marker struct since all styling is handled

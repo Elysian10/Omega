@@ -1,9 +1,9 @@
-// dom.rs
+// /src/dom/dom.rs
 use slotmap::{SlotMap, SecondaryMap};
 use crate::dom::{
     element::Element, 
     layoutengine::{LayoutData, TextInfo},
-    styleengine::{ComputedElementStyle, ComputedTextStyle, ElementStyle, TextStyle}, 
+    styleengine::{ComputedElementStyle, ComputedTextStyle, Display, ElementStyle, TextStyle}, 
     text::Text
 };
 
@@ -159,5 +159,36 @@ impl Dom {
         }
         
         nodes
+    }
+
+    pub fn find_node_at_position(&self, x: f32, y: f32) -> Option<NodeId> {
+        if let Some(root_id) = self.root {
+            // Collect all nodes in depth-first order (from top to bottom in rendering order)
+            let nodes = self.collect_nodes_depth_first(root_id);
+            
+            // Check nodes in reverse order (from top-most to bottom-most)
+            for node_id in nodes.iter().rev() {
+                let key: slotmap::DefaultKey = (*node_id).into();
+                
+                if let Some(layout_data) = self.layout.get(key) {
+                    // Check if the point is inside the node's bounds
+                    if x >= layout_data.computed_x && 
+                       x <= layout_data.computed_x + layout_data.actual_width &&
+                       y >= layout_data.computed_y && 
+                       y <= layout_data.computed_y + layout_data.actual_height {
+                        return Some(*node_id);
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
+    pub fn set_display(&mut self, node_id: NodeId, display: Display) {
+        if let Some(style) = self.element_styles.get_mut(node_id.into()) {
+            style.display = Some(display);
+            self.dirty.insert(node_id.into(), true);
+        }
     }
 }

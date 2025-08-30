@@ -1,8 +1,8 @@
-// skiarenderer.rs
+// src/renderer/skiarenderer.rs
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::dom::{
-    debugtools::DebugTools, dom::{Dom, NodeContent, NodeId}, fontmanager::get_thread_local_font_mgr, layoutengine::{LayoutData, TextInfo}, styleengine::{BorderStyle, ComputedElementStyle, ComputedTextStyle}, text::Text
+    debugtools::DebugTools, dom::{Dom, NodeContent, NodeId}, events::EventSystem, fontmanager::get_thread_local_font_mgr, layoutengine::{LayoutData, TextInfo}, styleengine::{BorderStyle, ComputedElementStyle, ComputedTextStyle}, text::Text
 };
 use skia_safe::{surfaces, AlphaType, Canvas, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Path, Point, Rect};
 
@@ -20,7 +20,8 @@ impl SkiaRenderer {
         buffer: &mut [u32],
         width: usize,
         height: usize,
-        debug_tools: Option<&mut DebugTools>
+        debug_tools: Option<&mut DebugTools>,
+        event_system: Option<&mut EventSystem>
     ) {
         let stride = width * 4;
         
@@ -63,7 +64,7 @@ impl SkiaRenderer {
                 debug_tools.record_performance_metrics(style_time, layout_time, render_time);
                 
                 // Draw debug tools
-                debug_tools.draw_debug_tools(&canvas, dom_width as f32, 0.0, dom_width as f32, height as f32);
+                debug_tools.draw_debug_tools(&canvas, event_system.unwrap(), dom_width as f32, 0.0, dom_width as f32, height as f32);
             }
         }
     }

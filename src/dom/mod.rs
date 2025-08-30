@@ -7,6 +7,7 @@ pub mod styleengine;
 pub mod text;
 pub mod fontmanager;
 pub mod debugtools;
+pub mod events;
 
 // Re-export commonly used types
 pub use dom::Dom;

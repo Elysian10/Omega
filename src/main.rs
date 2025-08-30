@@ -13,6 +13,9 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::Window;
 
+use events::{EventSystem, MouseEvent, MouseEventType};
+
+use crate::dom::events;
 use crate::renderer::skiarenderer::SkiaRenderer;
 
 #[path = "utils/winit_app.rs"]
@@ -27,7 +30,14 @@ fn main() {
 
 pub(crate) fn entry(event_loop: EventLoop<()>) {
     let mut debug_tools = DebugTools::new();
-    debug_tools.log("test");
+    let mut event_system = EventSystem::new();
+    event_system.add_event_listener("mouseenter", |event: MouseEvent| {
+        println!("Mouse entered node: {:?} at ({}, {})", event.node_id, event.x, event.y);
+    });
+    
+    event_system.add_event_listener("mouseleave", |event: MouseEvent| {
+        println!("Mouse left node: {:?} at ({}, {})", event.node_id, event.x, event.y);
+    });
     let mut dom = Dom::new();
     
     // Create an element and add it to the DOM
@@ -88,11 +98,23 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
                         buffer.as_mut(),
                         width.get() as usize,
                         height.get() as usize,
-                        Some(&mut debug_tools),  // Add this parameter
+                        Some(&mut debug_tools),
+                        Some(&mut event_system)
+                        
                     );
                     
                     buffer.present().unwrap();
                 }
+            }
+            Event::WindowEvent { window_id, event: WindowEvent::CursorMoved { position, .. } } if window_id == window.id() => {
+                // Handle mouse movement
+                let x = position.x as f32;
+                let y = position.y as f32;
+                
+                // Process mouse movement for event system
+                event_system.process_mouse_move(&dom, x, y);
+
+                    window.request_redraw();
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested
