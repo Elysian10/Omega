@@ -52,21 +52,21 @@ impl DebugTools {
         // Draw performance metrics at the top (fixed position)
         let mut current_y = y + 20.0;
 
-        for metric in &self.performance_metrics {
-            canvas.draw_str(metric, Point::new(x + 10.0, current_y), &font, &text_paint);
-            current_y += 20.0;
-        }
+        // for metric in &self.performance_metrics {
+        //     canvas.draw_str(metric, Point::new(x + 10.0, current_y), &font, &text_paint);
+        //     current_y += 20.0;
+        // }
 
         // Draw separator line
         let mut line_paint = Paint::new(Color4f::new(0.5, 0.5, 0.5, 1.0), None);
         line_paint.set_stroke_width(1.0);
         line_paint.set_style(skia_safe::PaintStyle::Stroke);
-        canvas.draw_line(Point::new(x + 5.0, current_y), Point::new(x + width - 5.0, current_y), &line_paint);
+        //canvas.draw_line(Point::new(x + 5.0, current_y), Point::new(x + width - 5.0, current_y), &line_paint);
         current_y += 15.0;
 
         if let Some(node_id) = event_system.get_hovered_node() {
             let json_string = dom.get_json_at_path(node_id, "").unwrap();
-            Self::draw_json_string(&canvas, json_string, x + 150.0, y + 20.0, &font, &text_paint);
+            Self::draw_json_string(&canvas, json_string, x + 10.0, y + 20.0, &font, &text_paint);
         }
 
         // Draw logs below the separator

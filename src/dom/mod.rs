@@ -8,6 +8,8 @@ pub mod text;
 pub mod fontmanager;
 pub mod debugtools;
 pub mod events;
+pub mod domserializer;
+pub mod textlayout;
 
 // Re-export commonly used types
 pub use dom::Dom;

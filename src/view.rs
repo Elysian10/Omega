@@ -6,10 +6,10 @@ use crate::dom::{
 pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
     // Create a border with different colors on each side
     let border_style = BorderStyle::default()
-        .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0)) // Blue top
-        .right(5.0, Color::new(1.0, 0.0, 0.0, 1.0)) // Red right
-        .bottom(5.0, Color::new(0.0, 1.0, 0.0, 1.0)) // Green bottom
-        .left(5.0, Color::new(1.0, 1.0, 0.0, 1.0)); // Yellow left
+        .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0))
+        .right(5.0, Color::new(1.0, 0.0, 0.0, 1.0))
+        .bottom(5.0, Color::new(0.0, 1.0, 0.0, 1.0))
+        .left(5.0, Color::new(1.0, 1.0, 0.0, 1.0));
 
     let style = ElementStyle {
         background_color: Some(Color::new(0.1, 0.1, 0.1, 1.0)),
@@ -24,10 +24,10 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
     };
 
     let child1 = dom.create_element(Element::new());
-    let child2 = dom.create_element(Element::new());
+    let child2 = dom.create_element(Element::new().with_name("Second child"));
 
-    dom.set_display(child1, Display::InlineBlock);
-    dom.set_display(child2, Display::InlineBlock);
+    // dom.set_display(child1, Display::InlineBlock);
+    // dom.set_display(child2, Display::InlineBlock);
     dom.append_child(root_node_id, child1);
     dom.append_child(root_node_id, child2);
 

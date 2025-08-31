@@ -1,6 +1,5 @@
-use serde::ser::Error;
-use serde_json::{Map, Value};
 // /src/dom/dom.rs
+
 use slotmap::{SlotMap, SecondaryMap};
 use crate::dom::{
     element::Element, 
@@ -19,7 +18,7 @@ pub enum NodeContent {
 
 // New type for node IDs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(slotmap::DefaultKey);
+pub struct NodeId(pub(crate) slotmap::DefaultKey);
 
 // Convert from SlotMap key to NodeId
 impl From<slotmap::DefaultKey> for NodeId {
@@ -74,77 +73,7 @@ impl Dom {
         }
     }
 
-    pub fn node_to_json_value(&self, node_id: NodeId) -> Result<Value, serde_json::Error> {
-        let key: slotmap::DefaultKey = node_id.into();
-        
-        let mut result = Map::new();
-        result.insert("node_id".to_string(), Value::String(format!("{:?}", node_id.0)));
-
-        // Add content information
-        if let Some(content) = self.content.get(key) {
-            match content {
-                NodeContent::Element(e) => {
-                    result.insert("type".to_string(), Value::String("element".to_string()));
-                    // Add element-specific data if needed
-                }
-                NodeContent::Text(t) => {
-                    result.insert("type".to_string(), Value::String("text".to_string()));
-                    result.insert("text_content".to_string(), Value::String(t.content.clone()));
-                }
-            }
-        }
-
-        // Add styles
-        if let Some(style) = self.element_styles.get(key) {
-            result.insert("element_style".to_string(), serde_json::to_value(style)?);
-        }
-
-        if let Some(computed_style) = self.computed_element_styles.get(key) {
-            result.insert("computed_element_style".to_string(), serde_json::to_value(computed_style)?);
-        }
-
-        if let Some(text_style) = self.text_styles.get(key) {
-            result.insert("text_style".to_string(), serde_json::to_value(text_style)?);
-        }
-
-        if let Some(computed_text_style) = self.computed_text_styles.get(key) {
-            result.insert("computed_text_style".to_string(), serde_json::to_value(computed_text_style)?);
-        }
-
-        // Add layout data if available
-        if let Some(layout) = self.layout.get(key) {
-            result.insert("layout".to_string(), serde_json::to_value(layout)?);
-        }
-
-        Ok(Value::Object(result))
-    }
-
-    pub fn get_json_at_path(&self, node_id: NodeId, path: &str) -> Result<String, serde_json::Error> {
-        let value = self.node_to_json_value(node_id)?;
-        
-        // Split the path by dots to navigate the JSON structure
-        let path_parts: Vec<&str> = path.split('.').collect();
-        let mut current = &value;
-        
-        for part in path_parts {
-            if part.is_empty() {
-                continue;
-            }
-            
-            if let Some(obj) = current.as_object() {
-                if let Some(next) = obj.get(part) {
-                    current = next;
-                } else {
-                    return Err(serde_json::Error::custom(format!("Path '{}' not found", part)));
-                }
-            } else {
-                return Err(serde_json::Error::custom(format!("Cannot access '{}' on non-object", part)));
-            }
-        }
-        
-        serde_json::to_string_pretty(current)
-    }
-
+    
     
     // Node creation methods
     pub fn create_element(&mut self, element: Element) -> NodeId {
@@ -239,7 +168,6 @@ impl Dom {
                 }
             }
         }
-        
         nodes
     }
 
@@ -255,15 +183,15 @@ impl Dom {
                 if let Some(layout_data) = self.layout.get(key) {
                     // Check if the point is inside the node's bounds
                     if x >= layout_data.computed_x && 
-                       x <= layout_data.computed_x + layout_data.actual_width &&
+                       x <=  layout_data.computed_x + layout_data.actual_width &&
                        y >= layout_data.computed_y && 
                        y <= layout_data.computed_y + layout_data.actual_height {
                         return Some(*node_id);
                     }
                 }
             }
+            return Some(root_id);
         }
-        
         None
     }
 
@@ -271,6 +199,13 @@ impl Dom {
         if let Some(style) = self.element_styles.get_mut(node_id.into()) {
             style.display = Some(display);
             self.dirty.insert(node_id.into(), true);
+        }
+    }
+
+    pub fn set_element_name(&mut self, node_id: NodeId, name: String) {
+        let key: slotmap::DefaultKey = node_id.into();
+        if let Some(NodeContent::Element(element)) = self.content.get_mut(key) {
+            element.name = Some(name);
         }
     }
 }

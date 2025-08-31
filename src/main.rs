@@ -2,8 +2,8 @@ mod dom;
 mod renderer;
 mod view;
 use dom::Dom;
-use dom::element::Element;
 use dom::debugtools::DebugTools;
+use dom::element::Element;
 
 use skia_safe::{AlphaType, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Point, Rect, Surface, Typeface, surfaces};
 use std::num::NonZeroU32;
@@ -16,6 +16,7 @@ use winit::window::Window;
 use events::{EventSystem, MouseEvent, MouseEventType};
 
 use crate::dom::events;
+use crate::dom::styleengine::ElementStyle;
 use crate::renderer::skiarenderer::SkiaRenderer;
 
 #[path = "utils/winit_app.rs"]
@@ -34,17 +35,18 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
     event_system.add_event_listener("mouseenter", |event: MouseEvent| {
         println!("Mouse entered node: {:?} at ({}, {})", event.node_id, event.x, event.y);
     });
-    
+
     event_system.add_event_listener("mouseleave", |event: MouseEvent| {
         println!("Mouse left node: {:?} at ({}, {})", event.node_id, event.x, event.y);
     });
     let mut dom = Dom::new();
-    
     // Create an element and add it to the DOM
     let element = Element::new();
     let root_node_id = dom.create_element(element);
+
     dom.set_root(root_node_id);
-    
+    dom.set_element_style(root_node_id, ElementStyle::default());
+
     // Create the view (now updated for new DOM structure)
     view::create_view(&mut dom, root_node_id);
 
@@ -76,7 +78,7 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
             } => {
                 if let (PhysicalKey::Code(KeyCode::F12), ElementState::Pressed) = (event.physical_key, event.state) {
                     println!("F12 pressed!");
-                    debug_tools.log("F12 pressed!");  // Uncommented
+                    debug_tools.log("F12 pressed!"); // Uncommented
                     window.request_redraw();
                 }
             }
@@ -85,34 +87,29 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
                     eprintln!("RedrawRequested fired before Resumed or after Suspended");
                     return;
                 };
-                
+
                 let size = window.inner_size();
                 if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
                     let mut buffer = surface.buffer_mut().unwrap();
-                    
+
                     // Update the SkiaRenderer call to include debug tools
-                    SkiaRenderer::render(
-                        &mut dom,
-                        buffer.as_mut(),
-                        width.get() as usize,
-                        height.get() as usize,
-                        Some(&mut debug_tools),
-                        Some(&mut event_system)
-                        
-                    );
-                    
+                    SkiaRenderer::render(&mut dom, buffer.as_mut(), width.get() as usize, height.get() as usize, Some(&mut debug_tools), Some(&mut event_system));
+
                     buffer.present().unwrap();
                 }
             }
-            Event::WindowEvent { window_id, event: WindowEvent::CursorMoved { position, .. } } if window_id == window.id() => {
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::CursorMoved { position, .. },
+            } if window_id == window.id() => {
                 // Handle mouse movement
                 let x = position.x as f32;
                 let y = position.y as f32;
-                
+
                 // Process mouse movement for event system
                 event_system.process_mouse_move(&dom, x, y);
 
-                    window.request_redraw();
+                window.request_redraw();
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested
