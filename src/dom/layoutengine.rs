@@ -1,3 +1,4 @@
+use serde::Serialize;
 // /src/dom/layoutengine.rs
 use skia_safe::{Font, FontMgr, FontStyle};
 use crate::dom::dom::{Dom, NodeContent, NodeId};
@@ -12,7 +13,7 @@ pub struct Rect {
     pub height: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct LayoutData {
     pub computed_x: f32,
     pub computed_y: f32,

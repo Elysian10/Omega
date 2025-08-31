@@ -90,8 +90,6 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
                 if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
                     let mut buffer = surface.buffer_mut().unwrap();
                     
-                    debug_tools.log("render");  // Uncommented
-                    
                     // Update the SkiaRenderer call to include debug tools
                     SkiaRenderer::render(
                         &mut dom,

@@ -13,12 +13,12 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
 
     let style = ElementStyle {
         background_color: Some(Color::new(0.1, 0.1, 0.1, 1.0)),
-        padding: Some(BoxModelValues {
-            top: 20.0,
-            right: 20.0,
-            bottom: 20.0,
-            left: 20.0,
-        }),
+        // padding: Some(BoxModelValues {
+        //     top: 20.0,
+        //     right: 20.0,
+        //     bottom: 20.0,
+        //     left: 20.0,
+        // }),
         border: Some(border_style),
         ..Default::default()
     };

@@ -1,6 +1,8 @@
 // /src/dom/styleengine.rs
 
 use skia_safe::Color4f;
+use serde::{Serialize, Serializer};
+use serde_json;
 
 use crate::dom::dom::{Dom, NodeContent};
 
@@ -18,7 +20,18 @@ impl Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+impl Serialize for Color {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Format as a compact string: "rgba(r, g, b, a)"
+        let color_str = format!("rgba({:.2}, {:.2}, {:.2}, {:.2})", self.r, self.g, self.b, self.a);
+        serializer.serialize_str(&color_str)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Display {
     Block,
     Inline,
@@ -26,7 +39,7 @@ pub enum Display {
     None,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct BoxModelValues {
     pub top: f32,
     pub right: f32,
@@ -43,14 +56,53 @@ pub struct BorderStyle {
     pub left: Option<BorderSide>,
 }
 
+impl Serialize for BorderStyle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeMap;
+        
+        let mut map = serializer.serialize_map(None)?;
+        
+        if let Some(top) = &self.top {
+            map.serialize_entry("top", top)?;
+        }
+        if let Some(right) = &self.right {
+            map.serialize_entry("right", right)?;
+        }
+        if let Some(bottom) = &self.bottom {
+            map.serialize_entry("bottom", bottom)?;
+        }
+        if let Some(left) = &self.left {
+            map.serialize_entry("left", left)?;
+        }
+        
+        map.end()
+    }
+}
+
+
 #[derive(Debug, Clone, Copy)]
 pub struct BorderSide {
     pub width: f32,
     pub color: Color,
 }
 
+impl Serialize for BorderSide {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Format as a compact string: "width:value, color:rgba(...)"
+        let border_str = format!("width:{:.1}, color:rgba({:.2}, {:.2}, {:.2}, {:.2})", 
+                               self.width, self.color.r, self.color.g, self.color.b, self.color.a);
+        serializer.serialize_str(&border_str)
+    }
+}
+
 // Element style with width and height properties
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ElementStyle {
     pub display: Option<Display>,
     pub width: Option<f32>,
@@ -62,7 +114,7 @@ pub struct ElementStyle {
     pub border: Option<BorderStyle>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TextStyle {
     pub color: Option<Color>,
     pub font_size: Option<f32>,
@@ -70,7 +122,7 @@ pub struct TextStyle {
 }
 
 // Computed element style with width and height properties
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ComputedElementStyle {
     pub display: Display,
     pub width: Option<f32>,
@@ -81,14 +133,14 @@ pub struct ComputedElementStyle {
     pub border: BorderStyle, // Changed from BorderStyle enum to BorderStyle struct
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ComputedTextStyle {
     pub color: Color,
     pub font_size: f32,
     pub font_family: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ComputedStyle {
     Element(ComputedElementStyle),
     Text(ComputedTextStyle),
@@ -171,6 +223,36 @@ impl Default for TextStyle {
             color: None, // Will default to white in computed text style
             font_size: None,
             font_family: None,
+        }
+    }
+}
+
+impl ElementStyle {
+    pub fn apply(&mut self, other: &ElementStyle) {
+        // Only apply properties that are explicitly set in the other style
+        if other.display.is_some() {
+            self.display = other.display;
+        }
+        if other.width.is_some() {
+            self.width = other.width;
+        }
+        if other.height.is_some() {
+            self.height = other.height;
+        }
+        if other.background_color.is_some() {
+            self.background_color = other.background_color;
+        }
+        if other.color.is_some() {
+            self.color = other.color;
+        }
+        if other.margin.is_some() {
+            self.margin = other.margin;
+        }
+        if other.padding.is_some() {
+            self.padding = other.padding;
+        }
+        if other.border.is_some() {
+            self.border = other.border;
         }
     }
 }
