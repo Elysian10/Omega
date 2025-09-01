@@ -1,8 +1,8 @@
 // /src/dom/styleengine.rs
 
-use skia_safe::Color4f;
 use serde::{Serialize, Serializer};
 use serde_json;
+use skia_safe::Color4f;
 
 use crate::dom::dom::{Dom, NodeContent};
 
@@ -20,16 +20,6 @@ impl Color {
     }
 }
 
-impl Serialize for Color {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Format as a compact string: "rgba(r, g, b, a)"
-        let color_str = format!("rgba({:.2}, {:.2}, {:.2}, {:.2})", self.r, self.g, self.b, self.a);
-        serializer.serialize_str(&color_str)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Display {
@@ -56,32 +46,38 @@ pub struct BorderStyle {
     pub left: Option<BorderSide>,
 }
 
-impl Serialize for BorderStyle {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        use serde::ser::SerializeMap;
-        
-        let mut map = serializer.serialize_map(None)?;
-        
-        if let Some(top) = &self.top {
-            map.serialize_entry("top", top)?;
-        }
-        if let Some(right) = &self.right {
-            map.serialize_entry("right", right)?;
-        }
-        if let Some(bottom) = &self.bottom {
-            map.serialize_entry("bottom", bottom)?;
-        }
-        if let Some(left) = &self.left {
-            map.serialize_entry("left", left)?;
-        }
-        
-        map.end()
-    }
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BoxSizing {
+    ContentBox,
+    BorderBox,
+    Inherit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum Float {
+    Left,
+    Right,
+    None,
+    Inherit,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct PositionOffsets {
+    pub top: Option<f32>,
+    pub right: Option<f32>,
+    pub bottom: Option<f32>,
+    pub left: Option<f32>,
+}
+
+#[derive(Debug, Clone,Copy, Serialize, Default)]
+pub struct ComputedPositionOffsets {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct BorderSide {
@@ -89,29 +85,21 @@ pub struct BorderSide {
     pub color: Color,
 }
 
-impl Serialize for BorderSide {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Format as a compact string: "width:value, color:rgba(...)"
-        let border_str = format!("width:{:.1}, color:rgba({:.2}, {:.2}, {:.2}, {:.2})", 
-                               self.width, self.color.r, self.color.g, self.color.b, self.color.a);
-        serializer.serialize_str(&border_str)
-    }
-}
 
-// Element style with width and height properties
 #[derive(Debug, Clone, Serialize)]
 pub struct ElementStyle {
     pub display: Option<Display>,
     pub width: Option<f32>,
     pub height: Option<f32>,
-    pub background_color: Option<Color>,
+    pub bg_color: Option<Color>,
     pub color: Option<Color>,
     pub margin: Option<BoxModelValues>,
     pub padding: Option<BoxModelValues>,
     pub border: Option<BorderStyle>,
+    pub box_sizing: Option<BoxSizing>,
+    pub position: Option<Position>,
+    pub position_offsets: Option<ComputedPositionOffsets>,
+    pub float: Option<Float>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,16 +109,19 @@ pub struct TextStyle {
     pub font_family: Option<String>,
 }
 
-// Computed element style with width and height properties
 #[derive(Debug, Clone, Serialize)]
 pub struct ComputedElementStyle {
     pub display: Display,
     pub width: Option<f32>,
     pub height: Option<f32>,
-    pub background_color: Color,
+    pub bg_color: Color,
     pub margin: BoxModelValues,
     pub padding: BoxModelValues,
-    pub border: BorderStyle, // Changed from BorderStyle enum to BorderStyle struct
+    pub border: BorderStyle,
+    pub position: Position,
+    pub box_sizing: BoxSizing,
+    pub position_offsets: PositionOffsets,
+    pub float: Float,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -138,6 +129,15 @@ pub struct ComputedTextStyle {
     pub color: Color,
     pub font_size: f32,
     pub font_family: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum Position {
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+    // Sticky can be added later
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,48 +188,9 @@ impl BorderStyle {
     }
 }
 
-impl Default for ComputedElementStyle {
-    fn default() -> Self {
-        Self {
-            display: Display::Block,
-            width: None,
-            height: None,
-            background_color: Color::new(0.0, 0.0, 0.0, 1.0), // Black background
-            margin: BoxModelValues::default(),
-            padding: BoxModelValues::default(),
-            border: BorderStyle::default(), // Default is no border on any side
-        }
-    }
-}
-
-impl Default for ElementStyle {
-    fn default() -> Self {
-        Self {
-            display: None,
-            width: None,
-            height: None,
-            background_color: None, // Will default to black in computed style
-            color: None,            // Will default to white in computed text style
-            margin: None,
-            padding: None,
-            border: None,
-        }
-    }
-}
-
-impl Default for TextStyle {
-    fn default() -> Self {
-        Self {
-            color: None, // Will default to white in computed text style
-            font_size: None,
-            font_family: None,
-        }
-    }
-}
 
 impl ElementStyle {
     pub fn apply(&mut self, other: &ElementStyle) {
-        // Only apply properties that are explicitly set in the other style
         if other.display.is_some() {
             self.display = other.display;
         }
@@ -239,8 +200,8 @@ impl ElementStyle {
         if other.height.is_some() {
             self.height = other.height;
         }
-        if other.background_color.is_some() {
-            self.background_color = other.background_color;
+        if other.bg_color.is_some() {
+            self.bg_color = other.bg_color;
         }
         if other.color.is_some() {
             self.color = other.color;
@@ -254,13 +215,24 @@ impl ElementStyle {
         if other.border.is_some() {
             self.border = other.border;
         }
+        if other.box_sizing.is_some() {
+            self.box_sizing = other.box_sizing;
+        }
+        if other.float.is_some() {
+            self.float = other.float;
+        }
+        if other.position.is_some() {
+            self.position = other.position;
+        }
+        if other.position_offsets.is_some() {
+            self.position_offsets = other.position_offsets;
+        }
     }
 }
 
 impl Dom {
     pub fn compute_styles(&mut self, viewport_width: f32, viewport_height: f32) {
         if let Some(root_id) = self.root {
-            // Use our new depth-first collection method instead of indextree's descendants
             let all_nodes = self.collect_nodes_depth_first(root_id);
 
             for node_id in all_nodes {
@@ -305,9 +277,35 @@ impl Dom {
             computed.display = parent.display;
         }
 
+        if let Some(box_sizing) = style.box_sizing {
+            computed.box_sizing = match box_sizing {
+                BoxSizing::Inherit => {
+                    if let Some(parent) = parent_style {
+                        parent.box_sizing
+                    } else {
+                        BoxSizing::ContentBox
+                    }
+                }
+                _ => box_sizing,
+            };
+        }
+
+        if let Some(float) = style.float {
+            computed.float = match float {
+                Float::Inherit => {
+                    if let Some(parent) = parent_style {
+                        parent.float
+                    } else {
+                        Float::None
+                    }
+                }
+                _ => float,
+            };
+        }
+
         // Apply element-specific styling
-        if let Some(bg_color) = style.background_color {
-            computed.background_color = bg_color;
+        if let Some(bg_color) = style.bg_color {
+            computed.bg_color = bg_color;
         }
 
         if let Some(margin) = style.margin {
@@ -320,6 +318,10 @@ impl Dom {
 
         if let Some(border) = style.border {
             computed.border = border;
+        }
+
+        if let Some(position) = style.position {
+            computed.position = position;
         }
 
         computed
@@ -336,7 +338,7 @@ impl Dom {
         // Inherit from parent if available
         if let Some(parent) = parent_style {
             // Text could inherit color from parent element
-            computed.color = parent.background_color;
+            computed.color = parent.bg_color;
         }
 
         // Apply text-specific styling

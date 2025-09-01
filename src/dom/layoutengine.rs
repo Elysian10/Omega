@@ -1,6 +1,5 @@
-// /src/dom/layoutengine.rs
 use crate::dom::dom::{Dom, NodeContent, NodeId};
-use crate::dom::styleengine::{BorderStyle, ComputedElementStyle, Display};
+use crate::dom::styleengine::{BorderStyle, BoxSizing, ComputedElementStyle, Display, Float};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -42,7 +41,6 @@ impl Dom {
     fn layout_node(&mut self, node_id: NodeId, available_space: Rect) -> Rect {
         let key: slotmap::DefaultKey = node_id.into();
 
-        // If display is 'none', return a zero-sized rect and do nothing.
         if let Some(style) = self.computed_element_styles.get(key) {
             if style.display == Display::None {
                 self.layout.insert(
@@ -73,18 +71,18 @@ impl Dom {
                 match element_style.display {
                     Display::Block => self.layout_block_node(node_id, available_space, &element_style, &child_ids),
                     Display::Inline | Display::InlineBlock => self.layout_inline_node(node_id, available_space, &element_style, &child_ids),
-                    Display::None => unreachable!(), // Handled above
+                    Display::None => unreachable!(),
                 }
             }
             Some(NodeContent::Text(text)) => {
                 let text_style = self.computed_text_styles.get(key).unwrap().clone();
-                let (_measured_width, measured_height, text_info) = Self::measure_text(&text.content, Some(&text_style.font_family), text_style.font_size, available_space.width);
+                let (measured_width, measured_height, text_info) = Self::measure_text(&text.content, Some(&text_style.font_family), text_style.font_size, available_space.width);
                 self.text_info.insert(key, text_info);
 
                 let text_rect = Rect {
                     x: available_space.x,
                     y: available_space.y,
-                    width: available_space.width, // Text takes available width initially
+                    width: measured_width,
                     height: measured_height,
                 };
 
@@ -93,7 +91,7 @@ impl Dom {
                     LayoutData {
                         computed_x: available_space.x,
                         computed_y: available_space.y,
-                        actual_width: available_space.width, // Will be constrained by parent
+                        actual_width: measured_width,
                         actual_height: measured_height,
                     },
                 );
@@ -103,8 +101,6 @@ impl Dom {
         }
     }
 
-    /// Lays out a block-level element.
-    /// It calculates its content box and then uses `layout_inline_children` to position child nodes.
     fn layout_block_node(&mut self, node_id: NodeId, available_space: Rect, element_style: &ComputedElementStyle, child_ids: &[NodeId]) -> Rect {
         let key: slotmap::DefaultKey = node_id.into();
 
@@ -112,31 +108,59 @@ impl Dom {
         let border_right = element_style.border.right.map(|b| b.width).unwrap_or(0.0);
         let border_top = element_style.border.top.map(|b| b.width).unwrap_or(0.0);
         let border_bottom = element_style.border.bottom.map(|b| b.width).unwrap_or(0.0);
+        let horizontal_borders = border_left + border_right;
+        let vertical_borders = border_top + border_bottom;
+        let horizontal_padding = element_style.padding.left + element_style.padding.right;
+        let vertical_padding = element_style.padding.top + element_style.padding.bottom;
+
+        // --- BOX SIZING: WIDTH CALCULATION ---
+        let border_box_width = element_style
+            .width
+            .unwrap_or(available_space.width - (element_style.margin.left + element_style.margin.right));
+        
+        let content_width = if element_style.box_sizing == BoxSizing::BorderBox {
+            border_box_width - horizontal_borders - horizontal_padding
+        } else { // ContentBox
+            element_style.width.unwrap_or(border_box_width - horizontal_borders - horizontal_padding)
+        };
+        // --- END BOX SIZING ---
 
         let content_x = available_space.x + element_style.margin.left + border_left + element_style.padding.left;
         let content_y = available_space.y + element_style.margin.top + border_top + element_style.padding.top;
-        let content_width = available_space.width - (element_style.margin.left + element_style.margin.right + border_left + border_right + element_style.padding.left + element_style.padding.right);
 
-        // **CHANGE**: Instead of a simple vertical loop, we now use the powerful inline layout function for all children.
         let content_box = Rect { x: content_x, y: content_y, width: content_width, height: f32::INFINITY };
         let (_used_width, used_height) = self.layout_inline_children(child_ids, content_box);
-
+        
         let content_height = used_height;
 
-        let padding_box_height = content_height + element_style.padding.top + element_style.padding.bottom;
-        let border_box_height = padding_box_height + border_top + border_bottom;
-        let final_height_with_margin = border_box_height + element_style.margin.top + element_style.margin.bottom;
+        // --- BOX SIZING: HEIGHT CALCULATION ---
+        let mut border_box_height = content_height + vertical_padding + vertical_borders;
+        if let Some(h) = element_style.height {
+            border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
+                h
+            } else { // ContentBox
+                h + vertical_padding + vertical_borders
+            };
+        }
+        // --- END BOX SIZING ---
 
+        let final_height_with_margin = border_box_height + element_style.margin.top + element_style.margin.bottom;
         let border_box_x = available_space.x + element_style.margin.left;
         let border_box_y = available_space.y + element_style.margin.top;
-        let border_box_width = available_space.width - (element_style.margin.left + element_style.margin.right);
+        
+        // For Block elements, the final actual width is the border box width, not the content width.
+        let final_border_box_width = if element_style.box_sizing == BoxSizing::ContentBox && element_style.width.is_some() {
+            content_width + horizontal_padding + horizontal_borders
+        } else {
+            border_box_width
+        };
 
         self.layout.insert(
             key,
             LayoutData {
                 computed_x: border_box_x,
                 computed_y: border_box_y,
-                actual_width: border_box_width,
+                actual_width: final_border_box_width,
                 actual_height: border_box_height,
             },
         );
@@ -149,7 +173,6 @@ impl Dom {
         }
     }
 
-    /// Lays out an inline or inline-block element.
     fn layout_inline_node(&mut self, node_id: NodeId, available_space: Rect, element_style: &ComputedElementStyle, child_ids: &[NodeId]) -> Rect {
         let key: slotmap::DefaultKey = node_id.into();
 
@@ -162,17 +185,36 @@ impl Dom {
         let content_y = available_space.y + element_style.margin.top + border_top + element_style.padding.top;
         let content_width = available_space.width - (element_style.margin.left + element_style.margin.right + border_left + border_right + element_style.padding.left + element_style.padding.right);
         
-        // **CHANGE**: Layout children using the dedicated inline layout function.
         let content_box = Rect { x: content_x, y: content_y, width: content_width, height: f32::INFINITY };
         let (used_content_width, used_content_height) = self.layout_inline_children(child_ids, content_box);
 
+        let horizontal_borders = border_left + border_right;
+        let vertical_borders = border_top + border_bottom;
+        let horizontal_padding = element_style.padding.left + element_style.padding.right;
+        let vertical_padding = element_style.padding.top + element_style.padding.bottom;
+
+        // --- BOX SIZING FOR INLINE-BLOCK ---
         let border_box_width = if element_style.display == Display::Inline {
-            used_content_width + element_style.padding.left + element_style.padding.right + border_left + border_right
+            used_content_width + horizontal_padding + horizontal_borders
         } else { // InlineBlock
-            element_style.width.unwrap_or(used_content_width + element_style.padding.left + element_style.padding.right + border_left + border_right)
+            element_style.width.unwrap_or_else(|| {
+                if element_style.box_sizing == BoxSizing::BorderBox {
+                    used_content_width + horizontal_padding + horizontal_borders
+                } else {
+                    used_content_width + horizontal_padding + horizontal_borders
+                }
+            })
         };
 
-        let border_box_height = element_style.height.unwrap_or(used_content_height + element_style.padding.top + element_style.padding.bottom + border_top + border_bottom);
+        let mut border_box_height = used_content_height + vertical_padding + vertical_borders;
+        if let Some(h) = element_style.height {
+             border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
+                h
+            } else { // ContentBox
+                h + vertical_padding + vertical_borders
+            };
+        }
+        // --- END BOX SIZING ---
 
         let border_box_x = available_space.x + element_style.margin.left;
         let border_box_y = available_space.y + element_style.margin.top;
@@ -195,78 +237,119 @@ impl Dom {
         }
     }
 
-    /// **NEW FUNCTION**: Lays out a list of children in an inline formatting context.
-    /// Manages horizontal cursor, line breaks, and determines the total content dimensions.
-    /// Returns (total_width, total_height) of the content.
+    /// Lays out children, respecting floats, block, and inline elements.
     fn layout_inline_children(&mut self, child_ids: &[NodeId], content_box: Rect) -> (f32, f32) {
+        let mut left_floats: Vec<Rect> = Vec::new();
+        let mut right_floats: Vec<Rect> = Vec::new();
         let mut cursor_x = content_box.x;
         let mut cursor_y = content_box.y;
-        let mut max_height_in_line = 0.0;
-        let mut max_width: f32 = 0.0;
+        let mut max_height_in_line = 0.0f32;
+        let mut max_width_so_far = 0.0f32;
 
         for &child_id in child_ids {
-            let child_key: slotmap::DefaultKey = child_id.into();
-            
-            // Determine if the child is block or inline level
-            let is_child_inline = match self.computed_element_styles.get(child_key) {
-                Some(style) => style.display == Display::Inline || style.display == Display::InlineBlock,
-                None => true, // Assume text nodes are inline
+            let child_key = child_id.into();
+
+            let (float_type, display_type) = {
+                if let Some(style) = self.computed_element_styles.get(child_key) {
+                    (style.float, style.display)
+                } else {
+                    // It's a text node, which is inline
+                    (Float::None, Display::Inline) 
+                }
             };
 
-            if is_child_inline {
-                let remaining_width = content_box.width - (cursor_x - content_box.x);
-                let child_available_space = Rect {
-                    x: cursor_x,
-                    y: cursor_y,
-                    width: remaining_width,
-                    height: f32::INFINITY,
-                };
+            if float_type == Float::Left || float_type == Float::Right {
+                // --- HANDLE FLOATED ELEMENT ---
+                let (line_start, line_end) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
+                let available_float_width = line_end - line_start;
 
-                let mut child_rect = self.layout_node(child_id, child_available_space);
+                let float_space = Rect { x: 0.0, y: 0.0, width: available_float_width, height: f32::INFINITY };
+                let mut float_rect = self.layout_node(child_id, float_space);
 
-                // Line wrapping logic
-                if child_rect.width > remaining_width && cursor_x > content_box.x {
-                    cursor_x = content_box.x;
+                let x = if float_type == Float::Left { line_start } else { line_end - float_rect.width };
+                float_rect.x = x;
+                float_rect.y = cursor_y;
+                
+                self.layout_node(child_id, float_rect); 
+
+                if float_type == Float::Left {
+                    left_floats.push(float_rect);
+                } else {
+                    right_floats.push(float_rect);
+                }
+            } else if display_type == Display::Block {
+                // --- NEW LOGIC: HANDLE BLOCK ELEMENT ---
+                // 1. Finish the current line of inline content.
+                if cursor_x > content_box.x {
+                    cursor_y += max_height_in_line;
+                }
+                // 2. Reset for the new block item.
+                max_height_in_line = 0.0;
+                cursor_x = content_box.x;
+                
+                // 3. Layout the block element, giving it the full content width.
+                let (line_start, _) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
+                let block_space = Rect { x: line_start, y: cursor_y, width: content_box.width, height: f32::INFINITY };
+                let child_rect = self.layout_node(child_id, block_space);
+                
+                // 4. Advance the vertical cursor past the block element.
+                cursor_y += child_rect.height;
+            }
+            else {
+                // --- HANDLE INLINE / INLINE-BLOCK ELEMENT ---
+                let (line_start, line_end) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
+                cursor_x = cursor_x.max(line_start);
+                
+                let remaining_width = line_end - cursor_x;
+                let child_space = Rect { x: cursor_x, y: cursor_y, width: remaining_width, height: f32::INFINITY };
+                let mut child_rect = self.layout_node(child_id, child_space);
+
+                if child_rect.width > remaining_width && cursor_x > line_start {
                     cursor_y += max_height_in_line;
                     max_height_in_line = 0.0;
                     
-                    let new_line_space = Rect {
-                        x: cursor_x,
-                        y: cursor_y,
-                        width: content_box.width,
-                        height: f32::INFINITY,
-                    };
-                    child_rect = self.layout_node(child_id, new_line_space);
+                    let (new_line_start, new_line_end) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
+                    cursor_x = new_line_start;
+
+                    let new_child_space = Rect { x: cursor_x, y: cursor_y, width: new_line_end - new_line_start, height: f32::INFINITY };
+                    child_rect = self.layout_node(child_id, new_child_space);
                 }
 
                 cursor_x += child_rect.width;
                 max_height_in_line = max_height_in_line.max(child_rect.height);
-                max_width = max_width.max(cursor_x - content_box.x);
-
-            } else { // Block-level child in an inline context
-                // Finish the current line
-                if cursor_x > content_box.x {
-                    cursor_y += max_height_in_line;
-                }
-
-                // Layout the block child on a new line, giving it the full content width
-                let child_available_space = Rect {
-                    x: content_box.x,
-                    y: cursor_y,
-                    width: content_box.width,
-                    height: f32::INFINITY,
-                };
-                let child_rect = self.layout_node(child_id, child_available_space);
-
-                // Move cursor down below the block element
-                cursor_y += child_rect.height;
-                cursor_x = content_box.x; // Reset horizontal cursor for the next line
-                max_height_in_line = 0.0; // Reset line height
-                max_width = max_width.max(child_rect.width);
+                max_width_so_far = max_width_so_far.max(cursor_x - content_box.x);
             }
         }
         
-        let total_content_height = (cursor_y + max_height_in_line) - content_box.y;
-        (max_width, total_content_height)
+        let in_flow_bottom = cursor_y + max_height_in_line;
+        let floats_bottom = get_floats_bottom(&left_floats, &right_floats);
+        
+        let total_content_height = in_flow_bottom.max(floats_bottom) - content_box.y;
+        (max_width_so_far, total_content_height)
     }
+}
+
+/// Helper to get the available horizontal space for a line, considering floats.
+fn get_line_bounds(y: f32, left_floats: &[Rect], right_floats: &[Rect], content_box: &Rect) -> (f32, f32) {
+    let mut left_bound = content_box.x;
+    let mut right_bound = content_box.x + content_box.width;
+
+    for float_rect in left_floats {
+        if y < float_rect.y + float_rect.height && y + 1.0 > float_rect.y {
+            left_bound = left_bound.max(float_rect.x + float_rect.width);
+        }
+    }
+    for float_rect in right_floats {
+        if y < float_rect.y + float_rect.height && y + 1.0 > float_rect.y {
+            right_bound = right_bound.min(float_rect.x);
+        }
+    }
+    (left_bound, right_bound)
+}
+
+/// Helper to determine the bottom-most point of all floats, for clearing.
+fn get_floats_bottom(left_floats: &[Rect], right_floats: &[Rect]) -> f32 {
+    let max_left = left_floats.iter().map(|r| r.y + r.height).fold(0.0, f32::max);
+    let max_right = right_floats.iter().map(|r| r.y + r.height).fold(0.0, f32::max);
+    max_left.max(max_right)
 }

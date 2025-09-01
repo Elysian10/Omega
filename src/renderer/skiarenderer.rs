@@ -161,10 +161,10 @@ impl SkiaRenderer {
         }
 
         // Draw the background (inset from borders)
-        if style.background_color.a > 0.0 {
+        if style.bg_color.a > 0.0 {
             let background_rect = Rect::from_xywh(x + left_width, y + top_width, width - (left_width + right_width), height - (top_width + bottom_width));
 
-            let mut bg_paint = Paint::new(Color4f::from(style.background_color), None);
+            let mut bg_paint = Paint::new(Color4f::from(style.bg_color), None);
             bg_paint.set_style(PaintStyle::Fill);
             canvas.draw_rect(background_rect, &bg_paint);
         }
@@ -184,7 +184,8 @@ impl SkiaRenderer {
         let mut current_y = layout_data.computed_y;
 
         // Set up text paint using the resolved `color` property
-        let text_color = Color4f::new(style.color.r, style.color.g, style.color.b, style.color.a);
+        // let text_color = Color4f::new(style.color.r, style.color.g, style.color.b, style.color.a);
+        let text_color = Color4f::new(1.0, 1.0, 1.0, 1.0);
         let mut paint = Paint::new(text_color, None);
         paint.set_style(PaintStyle::Fill);
 
