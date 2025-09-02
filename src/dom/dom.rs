@@ -38,15 +38,14 @@ pub struct Dom {
     // Tree structure using SlotMap
     nodes: SlotMap<slotmap::DefaultKey, ()>,
     pub children: SecondaryMap<slotmap::DefaultKey, Vec<NodeId>>,
-    parents: SecondaryMap<slotmap::DefaultKey, Option<NodeId>>,
+    pub parents: SecondaryMap<slotmap::DefaultKey, Option<NodeId>>,
     pub root: Option<NodeId>,
 
     // SoA Data Collections
     pub content: SecondaryMap<slotmap::DefaultKey, NodeContent>,
     pub layout: SecondaryMap<slotmap::DefaultKey, LayoutData>,
     pub text_info: SecondaryMap<slotmap::DefaultKey, TextInfo>,
-    //pub dirty: SecondaryMap<slotmap::DefaultKey, bool>,
-    dirty: RefCell<SecondaryMap<slotmap::DefaultKey, bool>>,
+    pub dirty: RefCell<SecondaryMap<slotmap::DefaultKey, bool>>,
 
     // Separate style storage
     pub element_styles: SecondaryMap<slotmap::DefaultKey, ElementStyle>,
@@ -87,6 +86,19 @@ impl Dom {
         node_id
     }
 
+    pub fn append_new_element(&mut self, parent_id: NodeId, element: Element) -> NodeId {
+        let child_id = self.create_element(element);
+        self.append_child(parent_id, child_id);
+        child_id
+    }
+
+    pub fn append_new_styled_element(&mut self, parent_id: NodeId, element: Element, style: &ElementStyle) -> NodeId {
+        let child_id = self.create_element(element);
+        self.set_element_style(child_id, style.clone());
+        self.append_child(parent_id, child_id);
+        child_id
+    }
+
     pub fn create_text(&mut self, text: Text) -> NodeId {
         let key = self.nodes.insert(());
         let node_id = NodeId(key);
@@ -99,59 +111,16 @@ impl Dom {
 
         node_id
     }
+    
 
-    // Style setters
-    pub fn set_element_style(&mut self, node_id: NodeId, style: ElementStyle) {
-        let key: slotmap::DefaultKey = node_id.into();
-
-        // Get the current style or create a default one
-        let mut current_style = self.element_styles.get(key).cloned().unwrap_or_default();
-
-        // Apply the new style properties to the current style
-        current_style.apply(&style);
-
-        self.element_styles.insert(key, current_style);
-        self.dirty.borrow_mut().insert(node_id.into(), true);
-    }
-
-    pub fn set_text_style(&mut self, node_id: NodeId, style: TextStyle) {
-        self.text_styles.insert(node_id.into(), style);
-        self.dirty.borrow_mut().insert(node_id.into(), true);
-    }
-
-    pub fn set_text_info(&mut self, node_id: NodeId, text_info: TextInfo) {
-        self.text_info.insert(node_id.into(), text_info);
-    }
-
-    // Other methods
-    pub fn set_root(&mut self, node_id: NodeId) {
-        self.root = Some(node_id);
-    }
-
-    pub fn append_child(&mut self, parent_id: NodeId, child_id: NodeId) {
-        let parent_key: slotmap::DefaultKey = parent_id.into();
-        let child_key: slotmap::DefaultKey = child_id.into();
-
-        // Add child to parent's children list
-        if let Some(children) = self.children.get_mut(parent_key) {
-            children.push(child_id);
-        }
-
-        // Set child's parent
-        self.parents.insert(child_key, Some(parent_id));
-    }
-
-    // Helper method to get children of a node
     pub fn children(&self, node_id: NodeId) -> Option<&Vec<NodeId>> {
         self.children.get(node_id.into())
     }
 
-    // Helper method to get parent of a node
     pub fn parent(&self, node_id: NodeId) -> Option<NodeId> {
         self.parents.get(node_id.into()).and_then(|p| *p)
     }
 
-    // Method to collect all nodes in depth-first order
     pub fn collect_nodes_depth_first(&self, root_id: NodeId) -> Vec<NodeId> {
         let mut nodes = Vec::new();
         let mut stack = vec![root_id];
@@ -188,17 +157,5 @@ impl Dom {
             return Some(root_id);
         }
         None
-    }
-
-    pub fn set_dirty(&self, node_id: NodeId, is_dirty: bool) {
-        self.dirty.borrow_mut().insert(node_id.into(), is_dirty);
-    }
-
-    pub fn is_dirty(&self, node_id: NodeId) -> bool {
-        *self.dirty.borrow().get(node_id.into()).unwrap_or(&false)
-    }
-    
-    pub fn clear_dirty(&self, node_id: NodeId) {
-        self.dirty.borrow_mut().remove(node_id.into());
     }
 }

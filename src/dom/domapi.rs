@@ -1,7 +1,5 @@
 use crate::dom::{
-    Dom,
-    dom::{NodeContent, NodeId},
-    styleengine::{BorderStyle, BoxModelValues, BoxSizing, Color, Display, Float},
+    dom::{NodeContent, NodeId}, layoutengine::TextInfo, styleengine::{BorderStyle, BoxModelValues, BoxSizing, Color, Display, ElementStyle, Float, TextStyle}, Dom
 };
 
 impl Dom {
@@ -106,5 +104,56 @@ impl Dom {
             style.margin = Some(margin);
             self.set_dirty(node_id, true);
         }
+    }
+
+    pub fn set_dirty(&self, node_id: NodeId, is_dirty: bool) {
+        self.dirty.borrow_mut().insert(node_id.into(), is_dirty);
+    }
+
+    pub fn is_dirty(&self, node_id: NodeId) -> bool {
+        *self.dirty.borrow().get(node_id.into()).unwrap_or(&false)
+    }
+    
+    pub fn clear_dirty(&self, node_id: NodeId) {
+        self.dirty.borrow_mut().remove(node_id.into());
+    }
+
+    pub fn set_element_style(&mut self, node_id: NodeId, style: ElementStyle) {
+        let key: slotmap::DefaultKey = node_id.into();
+
+        // Get the current style or create a default one
+        let mut current_style = self.element_styles.get(key).cloned().unwrap_or_default();
+
+        // Apply the new style properties to the current style
+        current_style.apply(&style);
+
+        self.element_styles.insert(key, current_style);
+        self.dirty.borrow_mut().insert(node_id.into(), true);
+    }
+
+    pub fn set_text_style(&mut self, node_id: NodeId, style: TextStyle) {
+        self.text_styles.insert(node_id.into(), style);
+        self.dirty.borrow_mut().insert(node_id.into(), true);
+    }
+
+    pub fn set_text_info(&mut self, node_id: NodeId, text_info: TextInfo) {
+        self.text_info.insert(node_id.into(), text_info);
+    }
+
+    // Other methods
+    pub fn set_root(&mut self, node_id: NodeId) {
+        self.root = Some(node_id);
+    }
+
+    pub fn append_child(&mut self, parent_id: NodeId, child_id: NodeId) {
+        let parent_key: slotmap::DefaultKey = parent_id.into();
+        let child_key: slotmap::DefaultKey = child_id.into();
+
+        // Add child to parent's children list
+        if let Some(children) = self.children.get_mut(parent_key) {
+            children.push(child_id);
+        }
+
+        self.parents.insert(child_key, Some(parent_id));
     }
 }

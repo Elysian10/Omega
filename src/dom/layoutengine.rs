@@ -1,3 +1,5 @@
+// /src/dom/layoutengine.rs
+
 use crate::dom::dom::{Dom, NodeContent, NodeId};
 use crate::dom::styleengine::{BorderStyle, BoxSizing, ComputedElementStyle, Display, Float};
 use serde::Serialize;
@@ -68,10 +70,15 @@ impl Dom {
                 let element_style = self.computed_element_styles.get(key).unwrap().clone();
                 let child_ids = self.children.get(key).cloned().unwrap_or_default();
 
-                match element_style.display {
-                    Display::Block => self.layout_block_node(node_id, available_space, &element_style, &child_ids),
-                    Display::Inline | Display::InlineBlock => self.layout_inline_node(node_id, available_space, &element_style, &child_ids),
-                    Display::None => unreachable!(),
+                if element_style.float != Float::None {
+                    // Handle as block-level element, regardless of display value
+                    self.layout_inline_node(node_id, available_space, &element_style, &child_ids)
+                } else {
+                    match element_style.display {
+                        Display::Block => self.layout_block_node(node_id, available_space, &element_style, &child_ids),
+                        Display::Inline | Display::InlineBlock => self.layout_inline_node(node_id, available_space, &element_style, &child_ids),
+                        Display::None => unreachable!(),
+                    }
                 }
             }
             Some(NodeContent::Text(text)) => {
@@ -114,13 +121,12 @@ impl Dom {
         let vertical_padding = element_style.padding.top + element_style.padding.bottom;
 
         // --- BOX SIZING: WIDTH CALCULATION ---
-        let border_box_width = element_style
-            .width
-            .unwrap_or(available_space.width - (element_style.margin.left + element_style.margin.right));
-        
+        let border_box_width = element_style.width.unwrap_or(available_space.width - (element_style.margin.left + element_style.margin.right));
+
         let content_width = if element_style.box_sizing == BoxSizing::BorderBox {
             border_box_width - horizontal_borders - horizontal_padding
-        } else { // ContentBox
+        } else {
+            // ContentBox
             element_style.width.unwrap_or(border_box_width - horizontal_borders - horizontal_padding)
         };
         // --- END BOX SIZING ---
@@ -128,9 +134,14 @@ impl Dom {
         let content_x = available_space.x + element_style.margin.left + border_left + element_style.padding.left;
         let content_y = available_space.y + element_style.margin.top + border_top + element_style.padding.top;
 
-        let content_box = Rect { x: content_x, y: content_y, width: content_width, height: f32::INFINITY };
+        let content_box = Rect {
+            x: content_x,
+            y: content_y,
+            width: content_width,
+            height: f32::INFINITY,
+        };
         let (_used_width, used_height) = self.layout_inline_children(child_ids, content_box);
-        
+
         let content_height = used_height;
 
         // --- BOX SIZING: HEIGHT CALCULATION ---
@@ -138,7 +149,8 @@ impl Dom {
         if let Some(h) = element_style.height {
             border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
                 h
-            } else { // ContentBox
+            } else {
+                // ContentBox
                 h + vertical_padding + vertical_borders
             };
         }
@@ -147,8 +159,7 @@ impl Dom {
         let final_height_with_margin = border_box_height + element_style.margin.top + element_style.margin.bottom;
         let border_box_x = available_space.x + element_style.margin.left;
         let border_box_y = available_space.y + element_style.margin.top;
-        
-        // For Block elements, the final actual width is the border box width, not the content width.
+
         let final_border_box_width = if element_style.box_sizing == BoxSizing::ContentBox && element_style.width.is_some() {
             content_width + horizontal_padding + horizontal_borders
         } else {
@@ -184,8 +195,13 @@ impl Dom {
         let content_x = available_space.x + element_style.margin.left + border_left + element_style.padding.left;
         let content_y = available_space.y + element_style.margin.top + border_top + element_style.padding.top;
         let content_width = available_space.width - (element_style.margin.left + element_style.margin.right + border_left + border_right + element_style.padding.left + element_style.padding.right);
-        
-        let content_box = Rect { x: content_x, y: content_y, width: content_width, height: f32::INFINITY };
+
+        let content_box = Rect {
+            x: content_x,
+            y: content_y,
+            width: content_width,
+            height: f32::INFINITY,
+        };
         let (used_content_width, used_content_height) = self.layout_inline_children(child_ids, content_box);
 
         let horizontal_borders = border_left + border_right;
@@ -193,10 +209,10 @@ impl Dom {
         let horizontal_padding = element_style.padding.left + element_style.padding.right;
         let vertical_padding = element_style.padding.top + element_style.padding.bottom;
 
-        // --- BOX SIZING FOR INLINE-BLOCK ---
         let border_box_width = if element_style.display == Display::Inline {
             used_content_width + horizontal_padding + horizontal_borders
-        } else { // InlineBlock
+        } else {
+            // InlineBlock
             element_style.width.unwrap_or_else(|| {
                 if element_style.box_sizing == BoxSizing::BorderBox {
                     used_content_width + horizontal_padding + horizontal_borders
@@ -208,13 +224,13 @@ impl Dom {
 
         let mut border_box_height = used_content_height + vertical_padding + vertical_borders;
         if let Some(h) = element_style.height {
-             border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
+            border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
                 h
-            } else { // ContentBox
+            } else {
+                // ContentBox
                 h + vertical_padding + vertical_borders
             };
         }
-        // --- END BOX SIZING ---
 
         let border_box_x = available_space.x + element_style.margin.left;
         let border_box_y = available_space.y + element_style.margin.top;
@@ -253,65 +269,106 @@ impl Dom {
                 if let Some(style) = self.computed_element_styles.get(child_key) {
                     (style.float, style.display)
                 } else {
-                    // It's a text node, which is inline
-                    (Float::None, Display::Inline) 
+                    (Float::None, Display::Inline)
                 }
             };
 
             if float_type == Float::Left || float_type == Float::Right {
-                // --- HANDLE FLOATED ELEMENT ---
-                let (line_start, line_end) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
-                let available_float_width = line_end - line_start;
+                // --- NEW FLOAT LOGIC: Find a vertical spot where the float can fit ---
+                let ideal_space = Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: content_box.width,
+                    height: f32::INFINITY,
+                };
+                let ideal_rect = self.layout_node(child_id, ideal_space);
 
-                let float_space = Rect { x: 0.0, y: 0.0, width: available_float_width, height: f32::INFINITY };
-                let mut float_rect = self.layout_node(child_id, float_space);
+                let mut float_y = cursor_y;
+                let mut final_rect;
 
-                let x = if float_type == Float::Left { line_start } else { line_end - float_rect.width };
-                float_rect.x = x;
-                float_rect.y = cursor_y;
-                
-                self.layout_node(child_id, float_rect); 
+                loop {
+                    // This loop finds a suitable y-position for the float
+                    let (line_start, line_end) = get_line_bounds(float_y, &left_floats, &right_floats, &content_box);
+
+                    if ideal_rect.width <= (line_end - line_start) {
+                        // It fits! Place it here.
+                        let x = if float_type == Float::Left { line_start } else { line_end - ideal_rect.width };
+                        final_rect = ideal_rect;
+                        final_rect.x = x;
+                        final_rect.y = float_y;
+                        break;
+                    }
+
+                    // Doesn't fit. Move down to the next available vertical spot.
+                    let next_y = find_next_clear_y(float_y, &left_floats, &right_floats);
+                    if next_y > float_y {
+                        float_y = next_y;
+                    } else {
+                        // Failsafe: can't move down, so place it squished
+                        let x = if float_type == Float::Left { line_start } else { line_end - ideal_rect.width };
+                        final_rect = ideal_rect;
+                        final_rect.x = x;
+                        final_rect.y = float_y;
+                        final_rect.width = line_end - line_start; // Squish
+                        break;
+                    }
+                }
+
+                self.layout_node(child_id, final_rect);
 
                 if float_type == Float::Left {
-                    left_floats.push(float_rect);
+                    left_floats.push(final_rect);
                 } else {
-                    right_floats.push(float_rect);
+                    right_floats.push(final_rect);
                 }
             } else if display_type == Display::Block {
-                // --- NEW LOGIC: HANDLE BLOCK ELEMENT ---
-                // 1. Finish the current line of inline content.
+                // --- HANDLE BLOCK ELEMENT ---
                 if cursor_x > content_box.x {
                     cursor_y += max_height_in_line;
                 }
-                // 2. Reset for the new block item.
+
+                let floats_bottom = get_floats_bottom(&left_floats, &right_floats);
+                cursor_y = cursor_y.max(floats_bottom);
+
                 max_height_in_line = 0.0;
                 cursor_x = content_box.x;
-                
-                // 3. Layout the block element, giving it the full content width.
-                let (line_start, _) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
-                let block_space = Rect { x: line_start, y: cursor_y, width: content_box.width, height: f32::INFINITY };
+
+                let block_space = Rect {
+                    x: content_box.x,
+                    y: cursor_y,
+                    width: content_box.width,
+                    height: f32::INFINITY,
+                };
                 let child_rect = self.layout_node(child_id, block_space);
-                
-                // 4. Advance the vertical cursor past the block element.
+
                 cursor_y += child_rect.height;
-            }
-            else {
+            } else {
                 // --- HANDLE INLINE / INLINE-BLOCK ELEMENT ---
                 let (line_start, line_end) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
                 cursor_x = cursor_x.max(line_start);
-                
+
                 let remaining_width = line_end - cursor_x;
-                let child_space = Rect { x: cursor_x, y: cursor_y, width: remaining_width, height: f32::INFINITY };
+                let child_space = Rect {
+                    x: cursor_x,
+                    y: cursor_y,
+                    width: remaining_width,
+                    height: f32::INFINITY,
+                };
                 let mut child_rect = self.layout_node(child_id, child_space);
 
                 if child_rect.width > remaining_width && cursor_x > line_start {
                     cursor_y += max_height_in_line;
                     max_height_in_line = 0.0;
-                    
+
                     let (new_line_start, new_line_end) = get_line_bounds(cursor_y, &left_floats, &right_floats, &content_box);
                     cursor_x = new_line_start;
 
-                    let new_child_space = Rect { x: cursor_x, y: cursor_y, width: new_line_end - new_line_start, height: f32::INFINITY };
+                    let new_child_space = Rect {
+                        x: cursor_x,
+                        y: cursor_y,
+                        width: new_line_end - new_line_start,
+                        height: f32::INFINITY,
+                    };
                     child_rect = self.layout_node(child_id, new_child_space);
                 }
 
@@ -320,10 +377,10 @@ impl Dom {
                 max_width_so_far = max_width_so_far.max(cursor_x - content_box.x);
             }
         }
-        
+
         let in_flow_bottom = cursor_y + max_height_in_line;
         let floats_bottom = get_floats_bottom(&left_floats, &right_floats);
-        
+
         let total_content_height = in_flow_bottom.max(floats_bottom) - content_box.y;
         (max_width_so_far, total_content_height)
     }
@@ -352,4 +409,19 @@ fn get_floats_bottom(left_floats: &[Rect], right_floats: &[Rect]) -> f32 {
     let max_left = left_floats.iter().map(|r| r.y + r.height).fold(0.0, f32::max);
     let max_right = right_floats.iter().map(|r| r.y + r.height).fold(0.0, f32::max);
     max_left.max(max_right)
+}
+
+/// Helper to find the next y-position that might have more horizontal space.
+fn find_next_clear_y(current_y: f32, left_floats: &[Rect], right_floats: &[Rect]) -> f32 {
+    let mut next_y = f32::INFINITY;
+
+    // Find the lowest bottom-edge of a float that is currently higher than our cursor
+    for r in left_floats.iter().chain(right_floats.iter()) {
+        let bottom = r.y + r.height;
+        if bottom > current_y {
+            next_y = next_y.min(bottom);
+        }
+    }
+
+    if next_y.is_infinite() { current_y } else { next_y + 0.01 } // Add a tiny epsilon to clear the edge
 }

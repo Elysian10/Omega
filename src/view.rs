@@ -11,13 +11,6 @@ use crate::{
 };
 
 pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
-    // Create a border with different colors on each side
-    let border_style = BorderStyle::default()
-        .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0))
-        .right(5.0, Color::new(1.0, 0.0, 0.0, 1.0))
-        .bottom(5.0, Color::new(0.0, 1.0, 0.0, 1.0))
-        .left(5.0, Color::new(1.0, 1.0, 0.0, 1.0));
-
     let style = ElementStyle {
         bg_color: Some(Color::new(0.1, 0.1, 0.1, 1.0)),
         padding: Some(BoxModelValues {
@@ -26,28 +19,59 @@ pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
             bottom: 20.0,
             left: 20.0,
         }),
-        border: Some(border_style),
+        border: Some(BorderStyle::default()
+        .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0))
+        .right(5.0, Color::new(1.0, 0.0, 0.0, 1.0))
+        .bottom(5.0, Color::new(0.0, 1.0, 0.0, 1.0))
+        .left(5.0, Color::new(1.0, 1.0, 0.0, 1.0))),
         ..Default::default()
     };
+    
+    let text = dom.create_text(Text { content: "aaaaa aaaaa aaaaa aaaaa aaaaa aaaaa".to_owned(), font_size: 16.0, font_family: Some("Arial".to_owned()) });
 
-    let blocktest1 = dom.create_element(Element::new());
-    let blocktest2 = dom.create_element(Element::new());
-    let inlinetest1 = dom.create_element(Element::new());
-    let inlinetest2 = dom.create_element(Element::new());
+    let inlinetest1 = dom.append_new_element(root_node_id, Element::new());
+    let inlinetest2 = dom.append_new_element(root_node_id, Element::new());
+    let blocktest1 = dom.append_new_element(root_node_id, Element::new());
+    let blocktest2 = dom.append_new_element(root_node_id, Element::new());
+
+    dom.append_child(inlinetest1, text);
 
     dom.set_display(inlinetest1, Display::InlineBlock);
     dom.set_display(inlinetest2, Display::InlineBlock);
-    dom.append_child(root_node_id, inlinetest1);
-    dom.append_child(root_node_id, inlinetest2);
     dom.set_element_style(inlinetest1, style.clone());
     dom.set_element_style(inlinetest2, style.clone());
-    let text = dom.create_text(Text { content: "test".to_owned(), font_size: 16.0, font_family: Some("Arial".to_owned()) });
-    dom.append_child(inlinetest1, text);
 
-    dom.append_child(root_node_id, blocktest1);
-    dom.append_child(root_node_id, blocktest2);
     dom.set_element_style(blocktest1, style.clone());
     dom.set_element_style(blocktest2, style.clone());
+
+    test_float(dom, root_node_id);
+}
+
+fn test_float(dom: &mut Dom, root_node_id: NodeId){
+let style = ElementStyle {
+        bg_color: Some(Color::new(0.1, 0.1, 0.1, 1.0)),
+        border: Some(BorderStyle::default()
+        .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0))
+        .right(5.0, Color::new(1.0, 0.0, 0.0, 1.0))
+        .bottom(5.0, Color::new(0.0, 1.0, 0.0, 1.0))
+        .left(5.0, Color::new(1.0, 1.0, 0.0, 1.0))),
+        ..Default::default()
+    };
+
+    let text = dom.create_text(Text { content: "aaaaa aaaaa aaaaa aaaaa aaaaa aaaaa".to_owned(), font_size: 16.0, font_family: Some("Arial".to_owned()) });
+    let floatleft1 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
+    let floatleft2 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
+    // let floatright1 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
+    // let floatright2 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
+    dom.set_float(floatleft1, Float::Left);
+    dom.set_float(floatleft2, Float::Left);
+    // dom.set_float(floatright1, Float::Right);
+    // dom.set_float(floatright2, Float::Right);
+    // dom.append_child(floatleft1, text.clone());
+    dom.append_child(floatleft2, text);
+    // dom.append_child(floatright1, text);
+    // dom.append_child(floatright2, text);
+
 }
 
 // pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
