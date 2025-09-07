@@ -1,7 +1,7 @@
 // /src/dom/layoutengine.rs
 
 use crate::dom::dom::{Dom, NodeContent, NodeId};
-use crate::dom::styleengine::{BorderStyle, BoxSizing, ComputedElementStyle, Display, Float};
+use crate::dom::styleengine::{BorderStyle, BoxSizing, ComputedStyle, Display, Float, Size};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -29,21 +29,19 @@ pub struct TextInfo {
 
 impl Dom {
     pub fn compute_layout(&mut self, viewport_width: f32, viewport_height: f32) {
-        if let Some(root_id) = self.root {
-            let available_space = Rect {
-                x: 0.0,
-                y: 0.0,
-                width: viewport_width,
-                height: viewport_height,
-            };
-            self.layout_node(root_id, available_space);
-        }
+        let available_space = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: viewport_width,
+            height: viewport_height,
+        };
+        self.layout_node(self.root, available_space);
     }
 
-    fn layout_node(&mut self, node_id: NodeId, available_space: Rect) -> Rect {
+    pub fn layout_node(&mut self, node_id: NodeId, available_space: Rect) -> Rect {
         let key: slotmap::DefaultKey = node_id.into();
 
-        if let Some(style) = self.computed_element_styles.get(key) {
+        if let Some(style) = self.computed_styles.get(key) {
             if style.display == Display::None {
                 self.layout.insert(
                     key,
@@ -67,7 +65,7 @@ impl Dom {
 
         match node_content_type {
             Some(NodeContent::Element(_)) => {
-                let element_style = self.computed_element_styles.get(key).unwrap().clone();
+                let element_style = self.computed_styles.get(key).unwrap().clone();
                 let child_ids = self.children.get(key).cloned().unwrap_or_default();
 
                 if element_style.float != Float::None {
@@ -77,15 +75,29 @@ impl Dom {
                     match element_style.display {
                         Display::Block => self.layout_block_node(node_id, available_space, &element_style, &child_ids),
                         Display::Inline | Display::InlineBlock => self.layout_inline_node(node_id, available_space, &element_style, &child_ids),
+                        Display::Flex => unreachable!(),
                         Display::None => unreachable!(),
                     }
                 }
             }
             Some(NodeContent::Text(text)) => {
-                let text_style = self.computed_text_styles.get(key).unwrap().clone();
-                let (measured_width, measured_height, text_info) = Self::measure_text(&text.content, Some(&text_style.font_family), text_style.font_size, available_space.width);
-                self.text_info.insert(key, text_info);
+                let parent_style = if let Some(parent_id) = self.parent(node_id) {
+                    // Try to get the computed style of the parent
+                    self.get_computed_style(parent_id).unwrap_or_else(|| {
+                        // Fallback if parent exists but has no computed style
+                        ComputedStyle::default()
+                    })
+                } else {
+                    // Fallback if no parent exists
+                    ComputedStyle::default()
+                };
 
+                // Extract font properties with fallbacks
+                let font_family = parent_style.font_family;
+                let font_size = parent_style.font_size;
+
+                let (measured_width, measured_height, text_info) = Self::measure_text(&text.content, font_family, font_size, available_space.width);
+                self.text_info.insert(key, text_info);
                 let text_rect = Rect {
                     x: available_space.x,
                     y: available_space.y,
@@ -108,7 +120,7 @@ impl Dom {
         }
     }
 
-    fn layout_block_node(&mut self, node_id: NodeId, available_space: Rect, element_style: &ComputedElementStyle, child_ids: &[NodeId]) -> Rect {
+    fn layout_block_node(&mut self, node_id: NodeId, available_space: Rect, element_style: &ComputedStyle, child_ids: &[NodeId]) -> Rect {
         let key: slotmap::DefaultKey = node_id.into();
 
         let border_left = element_style.border.left.map(|b| b.width).unwrap_or(0.0);
@@ -117,22 +129,22 @@ impl Dom {
         let border_bottom = element_style.border.bottom.map(|b| b.width).unwrap_or(0.0);
         let horizontal_borders = border_left + border_right;
         let vertical_borders = border_top + border_bottom;
-        let horizontal_padding = element_style.padding.left + element_style.padding.right;
-        let vertical_padding = element_style.padding.top + element_style.padding.bottom;
+        let horizontal_padding = element_style.padding.horizontal_padding();
+        let vertical_padding = element_style.padding.vertical_padding();
 
         // --- BOX SIZING: WIDTH CALCULATION ---
-        let border_box_width = element_style.width.unwrap_or(available_space.width - (element_style.margin.left + element_style.margin.right));
+        let border_box_width = resolve_size_or_default(&element_style.width, available_space.width, available_space.width - (element_style.margin.get_left() + element_style.margin.get_right()));
 
         let content_width = if element_style.box_sizing == BoxSizing::BorderBox {
             border_box_width - horizontal_borders - horizontal_padding
         } else {
             // ContentBox
-            element_style.width.unwrap_or(border_box_width - horizontal_borders - horizontal_padding)
+            resolve_size_or_default(&element_style.width, available_space.width, border_box_width - horizontal_borders - horizontal_padding)
         };
         // --- END BOX SIZING ---
 
-        let content_x = available_space.x + element_style.margin.left + border_left + element_style.padding.left;
-        let content_y = available_space.y + element_style.margin.top + border_top + element_style.padding.top;
+        let content_x = available_space.x + element_style.margin.get_left() + border_left + element_style.padding.get_left();
+        let content_y = available_space.y + element_style.margin.get_top() + border_top + element_style.padding.get_top();
 
         let content_box = Rect {
             x: content_x,
@@ -146,19 +158,14 @@ impl Dom {
 
         // --- BOX SIZING: HEIGHT CALCULATION ---
         let mut border_box_height = content_height + vertical_padding + vertical_borders;
-        if let Some(h) = element_style.height {
-            border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
-                h
-            } else {
-                // ContentBox
-                h + vertical_padding + vertical_borders
-            };
+        if let Some(h) = resolve_size(&element_style.height, available_space.height) {
+            border_box_height = if element_style.box_sizing == BoxSizing::BorderBox { h } else { h + vertical_padding + vertical_borders };
         }
         // --- END BOX SIZING ---
 
-        let final_height_with_margin = border_box_height + element_style.margin.top + element_style.margin.bottom;
-        let border_box_x = available_space.x + element_style.margin.left;
-        let border_box_y = available_space.y + element_style.margin.top;
+        let final_height_with_margin = border_box_height + element_style.margin.get_top() + element_style.margin.get_bottom();
+        let border_box_x = available_space.x + element_style.margin.get_left();
+        let border_box_y = available_space.y + element_style.margin.get_top();
 
         let final_border_box_width = if element_style.box_sizing == BoxSizing::ContentBox && element_style.width.is_some() {
             content_width + horizontal_padding + horizontal_borders
@@ -184,7 +191,7 @@ impl Dom {
         }
     }
 
-    fn layout_inline_node(&mut self, node_id: NodeId, available_space: Rect, element_style: &ComputedElementStyle, child_ids: &[NodeId]) -> Rect {
+    fn layout_inline_node(&mut self, node_id: NodeId, available_space: Rect, element_style: &ComputedStyle, child_ids: &[NodeId]) -> Rect {
         let key: slotmap::DefaultKey = node_id.into();
 
         let border_left = element_style.border.left.map(|b| b.width).unwrap_or(0.0);
@@ -192,9 +199,9 @@ impl Dom {
         let border_top = element_style.border.top.map(|b| b.width).unwrap_or(0.0);
         let border_bottom = element_style.border.bottom.map(|b| b.width).unwrap_or(0.0);
 
-        let content_x = available_space.x + element_style.margin.left + border_left + element_style.padding.left;
-        let content_y = available_space.y + element_style.margin.top + border_top + element_style.padding.top;
-        let content_width = available_space.width - (element_style.margin.left + element_style.margin.right + border_left + border_right + element_style.padding.left + element_style.padding.right);
+        let content_x = available_space.x + element_style.margin.get_left() + border_left + element_style.padding.get_left();
+        let content_y = available_space.y + element_style.margin.get_top() + border_top + element_style.padding.get_top();
+        let content_width = available_space.width - (element_style.margin.get_left() + element_style.margin.get_right() + border_left + border_right + element_style.padding.get_left() + element_style.padding.get_right());
 
         let content_box = Rect {
             x: content_x,
@@ -206,34 +213,22 @@ impl Dom {
 
         let horizontal_borders = border_left + border_right;
         let vertical_borders = border_top + border_bottom;
-        let horizontal_padding = element_style.padding.left + element_style.padding.right;
-        let vertical_padding = element_style.padding.top + element_style.padding.bottom;
+        let horizontal_padding = element_style.padding.get_left() + element_style.padding.get_right();
+        let vertical_padding = element_style.padding.get_top() + element_style.padding.get_bottom();
 
         let border_box_width = if element_style.display == Display::Inline {
             used_content_width + horizontal_padding + horizontal_borders
         } else {
-            // InlineBlock
-            element_style.width.unwrap_or_else(|| {
-                if element_style.box_sizing == BoxSizing::BorderBox {
-                    used_content_width + horizontal_padding + horizontal_borders
-                } else {
-                    used_content_width + horizontal_padding + horizontal_borders
-                }
-            })
+            resolve_size_or_default(&element_style.width, content_box.width, used_content_width + horizontal_padding + horizontal_borders)
         };
 
         let mut border_box_height = used_content_height + vertical_padding + vertical_borders;
-        if let Some(h) = element_style.height {
-            border_box_height = if element_style.box_sizing == BoxSizing::BorderBox {
-                h
-            } else {
-                // ContentBox
-                h + vertical_padding + vertical_borders
-            };
+        if let Some(h) = resolve_size(&element_style.height, available_space.height) {
+            border_box_height = if element_style.box_sizing == BoxSizing::BorderBox { h } else { h + vertical_padding + vertical_borders };
         }
 
-        let border_box_x = available_space.x + element_style.margin.left;
-        let border_box_y = available_space.y + element_style.margin.top;
+        let border_box_x = available_space.x + element_style.margin.get_left();
+        let border_box_y = available_space.y + element_style.margin.get_top();
 
         self.layout.insert(
             key,
@@ -248,8 +243,8 @@ impl Dom {
         Rect {
             x: available_space.x,
             y: available_space.y,
-            width: border_box_width + element_style.margin.left + element_style.margin.right,
-            height: border_box_height + element_style.margin.top + element_style.margin.bottom,
+            width: border_box_width + element_style.margin.get_left() + element_style.margin.get_right(),
+            height: border_box_height + element_style.margin.get_top() + element_style.margin.get_bottom(),
         }
     }
 
@@ -265,13 +260,7 @@ impl Dom {
         for &child_id in child_ids {
             let child_key = child_id.into();
 
-            let (float_type, display_type) = {
-                if let Some(style) = self.computed_element_styles.get(child_key) {
-                    (style.float, style.display)
-                } else {
-                    (Float::None, Display::Inline)
-                }
-            };
+            let (float_type, display_type) = { if let Some(style) = self.computed_styles.get(child_key) { (style.float, style.display) } else { (Float::None, Display::Inline) } };
 
             if float_type == Float::Left || float_type == Float::Right {
                 // --- NEW FLOAT LOGIC: Find a vertical spot where the float can fit ---
@@ -424,4 +413,16 @@ fn find_next_clear_y(current_y: f32, left_floats: &[Rect], right_floats: &[Rect]
     }
 
     if next_y.is_infinite() { current_y } else { next_y + 0.01 } // Add a tiny epsilon to clear the edge
+}
+
+fn resolve_size(size: &Option<Size>, base: f32) -> Option<f32> {
+    match size {
+        Some(Size::Points(p)) => Some(*p),
+        Some(Size::Percent(p)) => Some((p / 100.0) * base),
+        Some(Size::Auto) | None => None,
+    }
+}
+
+fn resolve_size_or_default(size: &Option<Size>, base: f32, default: f32) -> f32 {
+    resolve_size(size, base).unwrap_or(default)
 }

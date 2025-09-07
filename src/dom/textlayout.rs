@@ -7,10 +7,10 @@ fn calculate_line_height(font: &Font, font_size: f32) -> f32 {
         font_size * 9.0 / 8.0
     }
 
-    pub fn measure_text(content: &str, font_family: Option<&str>, font_size: f32, max_width: f32) -> (f32, f32, TextInfo) {
+    pub fn measure_text(content: &str, font_family: String, font_size: f32, max_width: f32) -> (f32, f32, TextInfo) {
         let font_mgr = get_thread_local_font_mgr();
         let typeface = font_mgr
-            .match_family_style(font_family.unwrap_or("Arial"), FontStyle::normal())
+            .match_family_style(font_family, FontStyle::normal())
             .unwrap_or_else(|| font_mgr.legacy_make_typeface(None, FontStyle::normal()).unwrap());
 
         let font = Font::new(typeface, font_size);

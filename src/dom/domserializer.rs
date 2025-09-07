@@ -28,20 +28,12 @@ impl Dom{
         }
 
         // Add styles
-        if let Some(style) = self.element_styles.get(key) {
+        if let Some(style) = self.styles.get(key) {
             result.insert("element_style".to_string(), serde_json::to_value(style)?);
         }
 
-        if let Some(computed_style) = self.computed_element_styles.get(key) {
+        if let Some(computed_style) = self.computed_styles.get(key) {
             result.insert("computed_element_style".to_string(), serde_json::to_value(computed_style)?);
-        }
-
-        if let Some(text_style) = self.text_styles.get(key) {
-            result.insert("text_style".to_string(), serde_json::to_value(text_style)?);
-        }
-
-        if let Some(computed_text_style) = self.computed_text_styles.get(key) {
-            result.insert("computed_text_style".to_string(), serde_json::to_value(computed_text_style)?);
         }
 
         // Add layout data if available

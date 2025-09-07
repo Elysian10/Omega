@@ -12,7 +12,7 @@ pub mod domserializer;
 pub mod textlayout;
 pub mod domdefaults;
 pub mod domapi;
-pub mod r#macro;
+pub mod fragment;
 
 // Re-export commonly used types
 pub use dom::Dom;

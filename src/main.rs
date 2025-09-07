@@ -3,20 +3,15 @@ mod renderer;
 mod view;
 use dom::Dom;
 use dom::debugtools::DebugTools;
-use dom::element::Element;
 
-use skia_safe::{AlphaType, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Point, Rect, Surface, Typeface, surfaces};
 use std::num::NonZeroU32;
-use std::rc::Rc;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
-use winit::window::Window;
 
-use events::{EventSystem, MouseEvent, MouseEventType};
+use events::{EventSystem, MouseEvent};
 
 use crate::dom::events;
-use crate::dom::styleengine::ElementStyle;
 use crate::renderer::skiarenderer::SkiaRenderer;
 
 #[path = "utils/winit_app.rs"]
@@ -40,15 +35,10 @@ pub(crate) fn entry(event_loop: EventLoop<()>) {
         println!("Mouse left node: {:?} at ({}, {})", event.node_id, event.x, event.y);
     });
     let mut dom = Dom::new();
-    // Create an element and add it to the DOM
-    let element = Element::new();
-    let root_node_id = dom.create_element(element);
 
-    dom.set_root(root_node_id);
-    dom.set_element_style(root_node_id, ElementStyle::default());
 
     // Create the view (now updated for new DOM structure)
-    view::create_view(&mut dom, root_node_id);
+    view::create_view(&mut dom);
 
     let app = winit_app::WinitAppBuilder::with_init(
         |elwt| {

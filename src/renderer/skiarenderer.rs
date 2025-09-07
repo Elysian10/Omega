@@ -1,5 +1,5 @@
 // src/renderer/skiarenderer.rs
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::{os::unix::process::parent_id, time::{Instant, SystemTime, UNIX_EPOCH}};
 
 use crate::dom::{
     debugtools::DebugTools,
@@ -7,7 +7,7 @@ use crate::dom::{
     events::EventSystem,
     fontmanager::get_thread_local_font_mgr,
     layoutengine::{LayoutData, TextInfo},
-    styleengine::{BorderStyle, ComputedElementStyle, ComputedTextStyle},
+    styleengine::{BorderStyle, ComputedStyle},
     text::Text,
 };
 use skia_safe::{AlphaType, Canvas, Color, Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, PaintStyle, Path, Point, Rect, surfaces};
@@ -16,9 +16,7 @@ pub struct SkiaRenderer;
 
 impl SkiaRenderer {
     pub fn draw_dom(canvas: &Canvas, dom: &Dom) {
-        if let Some(root_id) = dom.root {
-            Self::render_node(canvas, dom, root_id);
-        }
+            Self::render_node(canvas, dom, dom.root);
     }
 
     pub fn render(dom: &mut Dom, buffer: &mut [u32], width: usize, height: usize, debug_tools: Option<&mut DebugTools>, event_system: Option<&mut EventSystem>) {
@@ -57,7 +55,7 @@ impl SkiaRenderer {
             }
         }
     }
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
     
     fn render_node(canvas: &Canvas, dom: &Dom, node_id: NodeId) {
         let key: slotmap::DefaultKey = node_id.into();
@@ -68,14 +66,15 @@ impl SkiaRenderer {
         if let (Some(content), Some(layout_data)) = (content, layout_data) {
             match content {
                 NodeContent::Element(_) => {
-                    if let Some(computed_style) = dom.computed_element_styles.get(key) {
+                    if let Some(computed_style) = dom.computed_styles.get(key) {
                         Self::draw_element(canvas, computed_style, *layout_data);
                     }
                 }
                 NodeContent::Text(text) => {
-                    if let Some(computed_style) = dom.computed_text_styles.get(key) {
+                    let parent_id = dom.parent(node_id).unwrap();
+                    if let Some(computed_style) = dom.get_computed_style(parent_id){
                         if let Some(text_info) = dom.text_info.get(key) {
-                            Self::draw_text(canvas, text, computed_style, *layout_data, text_info);
+                            Self::draw_text(canvas, text, &computed_style, *layout_data, text_info);
                         }
                     }
                 }
@@ -91,7 +90,7 @@ impl SkiaRenderer {
     }
 
     // Draws the border and then the background inset within it.
-    fn draw_element(canvas: &Canvas, style: &ComputedElementStyle, layout_data: LayoutData) {
+    fn draw_element(canvas: &Canvas, style: &ComputedStyle, layout_data: LayoutData) {
         let x = layout_data.computed_x;
         let y = layout_data.computed_y;
         let width = layout_data.actual_width;
@@ -171,13 +170,13 @@ impl SkiaRenderer {
     }
 
     // Draws the element's box first, then positions the text inside the padding area.
-    fn draw_text(canvas: &Canvas, text: &Text, style: &ComputedTextStyle, layout_data: LayoutData, text_info: &TextInfo) {
+    fn draw_text(canvas: &Canvas, text: &Text, style: &ComputedStyle, layout_data: LayoutData, text_info: &TextInfo) {
         // Draw debug rect to see what text is supposed to occupy
         let border_rect = Rect::from_xywh(layout_data.computed_x, layout_data.computed_y, layout_data.actual_width, layout_data.actual_height);
         let border_color = Color4f::new(0.0, 1.0, 0.0, 0.2);
         let mut border_paint = Paint::new(border_color, None);
         border_paint.set_style(PaintStyle::Fill);
-        // canvas.draw_rect(border_rect, &border_paint);
+         canvas.draw_rect(border_rect, &border_paint);
 
         // Now, draw the text content itself, positioned inside the padding area.
         let content_x = layout_data.computed_x;

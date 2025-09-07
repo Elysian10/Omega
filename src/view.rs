@@ -1,54 +1,60 @@
+use omega::rsx;
+
 // view.rs
 use crate::{
     dom::{
         Dom,
         dom::NodeId,
         element::Element,
-        styleengine::{BorderStyle, BoxModelValues, BoxSizing, Color, Display, ElementStyle, Float, TextStyle},
+        styleengine::{BorderStyle, BoxModelValues, BoxSizing, Color, Display, Style, Float, Font},
         text::Text,
     },
-    rsx,
 };
 
-pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
-    let style = ElementStyle {
+struct Div;
+
+impl Div {
+    fn default() -> Self {
+        println!("Creating a default Div instance");
+        Div
+    }
+}
+
+pub fn create_view(dom: &mut Dom) {
+    rsx!{div}
+    let style = Style {
         bg_color: Some(Color::new(0.1, 0.1, 0.1, 1.0)),
-        padding: Some(BoxModelValues {
-            top: 20.0,
-            right: 20.0,
-            bottom: 20.0,
-            left: 20.0,
-        }),
+        padding: Some(BoxModelValues::all(20.0)),
         border: Some(BorderStyle::default()
-        .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0))
-        .right(5.0, Color::new(1.0, 0.0, 0.0, 1.0))
-        .bottom(5.0, Color::new(0.0, 1.0, 0.0, 1.0))
-        .left(5.0, Color::new(1.0, 1.0, 0.0, 1.0))),
+        .top(5.0, Color::BLUE)
+        .right(5.0, Color::RED)
+        .bottom(5.0, Color::GREEN)
+        .left(5.0, Color::YELLOW)),
         ..Default::default()
     };
     
-    let text = dom.create_text(Text { content: "aaaaa aaaaa aaaaa aaaaa aaaaa aaaaa".to_owned(), font_size: 16.0, font_family: Some("Arial".to_owned()) });
+    let text = dom.create_text(Text::new("aaaaa aaaaa aaaaa aaaaa aaaaa aaaaa"));
 
-    let inlinetest1 = dom.append_new_element(root_node_id, Element::new());
-    let inlinetest2 = dom.append_new_element(root_node_id, Element::new());
-    let blocktest1 = dom.append_new_element(root_node_id, Element::new());
-    let blocktest2 = dom.append_new_element(root_node_id, Element::new());
+    let inlinetest1 = dom.append_new_element(dom.root, Element::new());
+    let inlinetest2 = dom.append_new_element(dom.root, Element::new());
+    let blocktest1 = dom.append_new_element(dom.root, Element::new());
+    let blocktest2 = dom.append_new_element(dom.root, Element::new());
 
     dom.append_child(inlinetest1, text);
 
     dom.set_display(inlinetest1, Display::InlineBlock);
     dom.set_display(inlinetest2, Display::InlineBlock);
-    dom.set_element_style(inlinetest1, style.clone());
-    dom.set_element_style(inlinetest2, style.clone());
+    dom.set_style(inlinetest1, style.clone());
+    dom.set_style(inlinetest2, style.clone());
 
-    dom.set_element_style(blocktest1, style.clone());
-    dom.set_element_style(blocktest2, style.clone());
+    dom.set_style(blocktest1, style.clone());
+    dom.set_style(blocktest2, style.clone());
 
-    test_float(dom, root_node_id);
+    test_float(dom);
 }
 
-fn test_float(dom: &mut Dom, root_node_id: NodeId){
-let style = ElementStyle {
+fn test_float(dom: &mut Dom){
+let style = Style {
         bg_color: Some(Color::new(0.1, 0.1, 0.1, 1.0)),
         border: Some(BorderStyle::default()
         .top(5.0, Color::new(0.0, 0.0, 1.0, 1.0))
@@ -58,11 +64,11 @@ let style = ElementStyle {
         ..Default::default()
     };
 
-    let text = dom.create_text(Text { content: "aaaaa aaaaa aaaaa aaaaa aaaaa aaaaa".to_owned(), font_size: 16.0, font_family: Some("Arial".to_owned()) });
-    let floatleft1 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
-    let floatleft2 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
-    // let floatright1 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
-    // let floatright2 = dom.append_new_styled_element(root_node_id, Element::new(), &style);
+    let text = dom.create_text(Text { content: "aaaaa aaaaa aaaaa aaaaa aaaaa aaaaa".to_owned()});
+    let floatleft1 = dom.append_new_styled_element(dom.root, Element::new(), &style);
+    let floatleft2 = dom.append_new_styled_element(dom.root, Element::new(), &style);
+    // let floatright1 = dom.append_new_styled_element(dom.root, Element::new(), &style);
+    // let floatright2 = dom.append_new_styled_element(dom.root, Element::new(), &style);
     dom.set_float(floatleft1, Float::Left);
     dom.set_float(floatleft2, Float::Left);
     // dom.set_float(floatright1, Float::Right);
@@ -74,10 +80,10 @@ let style = ElementStyle {
 
 }
 
-// pub fn create_view(dom: &mut Dom, root_node_id: NodeId) {
+// pub fn create_view(dom: &mut Dom, dom.root: NodeId) {
 //     rsx! {
 //         dom,
-//         root_node_id,
+//         dom.root,
 //         div {
 //             border {
 //                 top { width: 5.0, color: 0.0, 0.0, 1.0, 1.0 },
